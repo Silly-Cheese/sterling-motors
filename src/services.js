@@ -480,3 +480,17 @@ export async function receiveAcquisitionVehicle(acquisition, data, actor) {
   await batch.commit();
   return { id: vehicleId };
 }
+
+
+export async function staffAcceptAcquisitionOffer(id, actor, note = "") {
+  return updateDoc(doc(db, "vehicleAcquisitions", id), {
+    status: "accepted",
+    customerResponse: "accept",
+    customerResponseNote: note || "",
+    acceptanceMethod: "staff_assisted",
+    acceptedByStaff: actor.uid,
+    acceptedByStaffName: actor.displayName || actor.email || "Sterling Staff",
+    respondedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
