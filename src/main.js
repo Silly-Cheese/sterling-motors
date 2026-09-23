@@ -23,7 +23,12 @@ import {
   completeTestDrive,
   createNotification,
   markNotificationRead,
-  updateUserAccess
+  updateUserAccess,
+  getBootstrapStatus,
+  claimBootstrap,
+  createTradeIn,
+  createFinanceApplication,
+  createDelivery
 } from "./services";
 
 const app = document.querySelector("#app");
@@ -32,7 +37,8 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [] },
+  bootstrap: null,
   loading: true,
   flash: null
 };
@@ -188,6 +194,7 @@ function dashboard() {
       </div>
     </div>
 
+    ${state.bootstrap && !state.bootstrap.initialized ? bootstrapBanner() : ""}
     <div class="metric-grid">
       ${metric("Vehicles Available", available, "car-front", "Inventory ready for sale")}
       ${metric("Active Deals", activeDeals, "handshake", "Across the sales floor")}
@@ -366,9 +373,224 @@ function staffPage() {
   `;
 }
 
+
+function bootstrapBanner() {
+  return `<div class="bootstrap-banner">
+    <div class="bootstrap-icon">${icon("crown")}</div>
+    <div><span class="eyebrow">FIRST-RUN SETUP</span><h3>Sterling DRIVE has not been claimed yet.</h3><p>The first signed-in account can securely become Dealer Principal and receive employee ID SMG-0001. This option disappears after initialization.</p></div>
+    <button class="btn primary" data-action="claim-bootstrap">${icon("shield-check")} Claim Dealer Principal</button>
+  </div>`;
+}
+
+function bootstrapModal() {
+  modal("Initialize Sterling Motor Group", `
+    <div class="bootstrap-confirm">
+      <div class="bootstrap-seal">${icon("crown")}</div>
+      <h3>Claim the first Sterling executive account</h3>
+      <p>This will promote <strong>${safe(state.profile?.displayName || state.user?.email || "this account")}</strong> to Dealer Principal, assign employee ID <strong>SMG-0001</strong>, and grant full Sterling DRIVE access.</p>
+      <div class="manager-note"><span>ONE-TIME ACTION</span><p>After the bootstrap record is created, this public initialization path is permanently closed by Firestore security rules.</p></div>
+    </div>
+  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-bootstrap">${icon("crown")} Claim SMG-0001</button>`);
+  document.querySelector("#confirm-bootstrap")?.addEventListener("click", async () => {
+    try {
+      await claimBootstrap(state.user, state.profile?.displayName || state.user?.displayName || "");
+      state.profile = await getUserProfile(state.user.uid);
+      state.bootstrap = await getBootstrapStatus();
+      closeModal();
+      await refreshData();
+      setFlash("Sterling DRIVE initialized. You are now Dealer Principal • SMG-0001.");
+    } catch (e) {
+      setFlash(e.message || "Bootstrap could not be completed. Deploy the latest Firestore rules and try again.", "error");
+    }
+  });
+}
+
+function financePage() {
+  const financeDeals = state.data.deals.filter(d => ["finance","documents","delivery"].includes((d.stage || "").toLowerCase()));
+  const approved = state.data.financeApplications.filter(x => ["approved","finalized"].includes((x.status || "").toLowerCase())).length;
+  const deliveries = state.data.deliveries.filter(x => (x.status || "").toLowerCase() !== "complete").length;
+  const financed = state.data.financeApplications.reduce((sum,x) => sum + Number(x.amountFinanced || 0), 0);
+
+  return `
+    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Build RP financing packages, protection products, contracts, and final vehicle delivery.")}
+    <div class="metric-grid">
+      ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
+      ${metric("Approved Packages", approved, "badge-check", "Saved finance packages")}
+      ${metric("Amount Financed", money(financed), "circle-dollar-sign", "Fictional RP financing")}
+      ${metric("Delivery Queue", deliveries, "key-round", "Vehicles awaiting handoff")}
+    </div>
+    <div class="panel no-pad">
+      ${financeDeals.length ? `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Deal</th><th>Customer</th><th>Vehicle</th><th>Stage</th><th>Trade</th><th>Finance</th><th>Payment</th><th></th></tr></thead>
+        <tbody>${financeDeals.map(d => {
+          const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
+          const fin=state.data.financeApplications.find(x=>x.dealId===d.id);
+          return `<tr>
+            <td><strong>${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}</strong></td>
+            <td>${safe(d.customerName || "—")}</td>
+            <td>${safe(d.vehicleName || "—")}</td>
+            <td>${statusPill(d.stage || "finance")}</td>
+            <td>${trade ? money(trade.allowance) : "None"}</td>
+            <td>${fin ? statusPill(fin.status || "draft") : '<span class="muted-inline">Not started</span>'}</td>
+            <td><strong>${fin ? money(fin.monthlyPayment) + "/mo" : "—"}</strong></td>
+            <td><button class="btn secondary small" data-finance-deal="${d.id}">${icon(d.stage==="delivery"?"key-round":"calculator")} ${d.stage==="delivery"?"Delivery":"Open F&I"}</button></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>` : emptyState("landmark", "Finance queue is clear", "Approved sales deals will arrive here automatically.")}
+    </div>
+    <div class="rp-disclaimer">${icon("info")} Sterling financing data is fictional and intended only for roleplay. Do not enter real SSNs, credit reports, banking credentials, or other sensitive financial information.</div>
+  `;
+}
+
+function tradeInModal(d) {
+  const existing=state.data.tradeIns.find(t=>t.dealId===d.id);
+  modal(existing ? "Edit Trade-In Appraisal" : "Trade-In Appraisal", `<form id="trade-form" class="form-grid">
+    ${formField("Year","tradeYear",existing?.year || "2022","number","required")}
+    ${formField("Make","tradeMake",existing?.make || "Toyota","text","required")}
+    ${formField("Model","tradeModel",existing?.model || "Camry","text","required")}
+    ${formField("VIN","tradeVin",existing?.vin || "VIN","text","required maxlength='17'")}
+    ${formField("Mileage","tradeMileage",String(existing?.mileage || 50000),"number","required")}
+    <div class="field"><label>Exterior Condition</label><select class="plain-input" id="tradeExterior">${["Excellent","Good","Fair","Poor"].map(x=>`<option ${existing?.exterior===x?"selected":""}>${x}</option>`).join("")}</select></div>
+    <div class="field"><label>Interior Condition</label><select class="plain-input" id="tradeInterior">${["Excellent","Good","Fair","Poor"].map(x=>`<option ${existing?.interior===x?"selected":""}>${x}</option>`).join("")}</select></div>
+    <div class="field"><label>Mechanical Condition</label><select class="plain-input" id="tradeMechanical">${["Excellent","Good","Fair","Needs Repair"].map(x=>`<option ${existing?.mechanical===x?"selected":""}>${x}</option>`).join("")}</select></div>
+    ${formField("Actual Cash Value (ACV)","tradeAcv",String(existing?.acv || 15000),"number","required")}
+    ${formField("Customer Allowance","tradeAllowance",String(existing?.allowance || 15500),"number","required")}
+    <div class="field full"><label>Appraisal Notes</label><textarea class="plain-input textarea" id="tradeNotes" placeholder="Condition, warning lights, damage, modifications...">${safe(existing?.notes || "")}</textarea></div>
+  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-trade">${icon("car")} Save Appraisal</button>`);
+  document.querySelector("#save-trade")?.addEventListener("click", async () => {
+    const form=document.querySelector("#trade-form"); if(!form.reportValidity()) return;
+    const data={
+      dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",
+      year:Number(document.querySelector("#tradeYear").value),make:document.querySelector("#tradeMake").value.trim(),model:document.querySelector("#tradeModel").value.trim(),
+      vin:document.querySelector("#tradeVin").value.trim(),mileage:Number(document.querySelector("#tradeMileage").value),
+      exterior:document.querySelector("#tradeExterior").value,interior:document.querySelector("#tradeInterior").value,mechanical:document.querySelector("#tradeMechanical").value,
+      acv:Number(document.querySelector("#tradeAcv").value),allowance:Number(document.querySelector("#tradeAllowance").value),
+      notes:document.querySelector("#tradeNotes").value.trim(),status:"accepted"
+    };
+    try {
+      let id=existing?.id;
+      if(existing) await updateRecord("tradeIns",existing.id,data);
+      else { const res=await createTradeIn(data,state.user); id=res.id; }
+      await updateRecord("deals",d.id,{tradeInId:id,tradeAllowance:data.allowance});
+      await writeAudit(state.user,"trade.appraised","tradeIn",id,{dealId:d.id,acv:data.acv,allowance:data.allowance});
+      closeModal(); await refreshData(); setFlash("Trade-in appraisal saved.");
+    } catch(e){setFlash(e.message || "Unable to save appraisal.","error");}
+  });
+}
+
+function monthlyPayment(principal, apr, months) {
+  const p=Math.max(0,Number(principal)||0), n=Math.max(1,Number(months)||1), annual=Number(apr)||0;
+  if(annual<=0) return p/n;
+  const r=annual/100/12;
+  return p*r/(1-Math.pow(1+r,-n));
+}
+
+function financeWorksheetModal(d) {
+  const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
+  const existing=state.data.financeApplications.find(x=>x.dealId===d.id);
+  const sale=Number(d.counterPrice || d.finalPrice || d.price || 0);
+  const products=[
+    ["extended_warranty","Extended Warranty",2495],
+    ["gap","GAP Coverage",995],
+    ["maintenance","Maintenance Plan",1495],
+    ["tire_wheel","Tire & Wheel Protection",895]
+  ];
+  const selected=new Set(existing?.products || []);
+  modal("Finance Worksheet", `
+    <div class="finance-hero"><div><span class="eyebrow">DEAL ${safe(d.dealNumber || "")}</span><h3>${safe(d.customerName || "Customer")}</h3><p>${safe(d.vehicleName || "Vehicle")}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
+    <form id="finance-form" class="form-grid">
+      <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="creditTier"><option>Tier 1</option><option>Tier 2</option><option>Tier 3</option><option>Tier 4</option></select></div>
+      ${formField("Down Payment","downPayment",String(existing?.downPayment || 0),"number","required min='0'")}
+      <div class="field"><label>Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.allowance ?? d.tradeAllowance ?? 0)}" readonly></div>
+      ${formField("APR","apr",String(existing?.apr || 6.49),"number","required min='0' step='0.01'")}
+      <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(existing?.termMonths||72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
+      <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
+    </form>
+    <div class="finance-summary">
+      <div><span>Products</span><strong id="sumProducts">$0</strong></div>
+      <div><span>Amount Financed</span><strong id="sumPrincipal">$0</strong></div>
+      <div class="payment-total"><span>Estimated Payment</span><strong id="sumPayment">$0/mo</strong></div>
+    </div>
+    <div class="rp-disclaimer compact">${icon("shield-check")} RP-only finance calculator. Never enter real credit or banking information.</div>
+  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance">${icon("file-check-2")} Finalize Finance Package</button>`);
+
+  const calculate=()=>{
+    const productTotal=[...document.querySelectorAll("[data-finance-product]:checked")].reduce((s,x)=>s+Number(x.dataset.price||0),0);
+    const down=Number(document.querySelector("#downPayment").value||0), allowance=Number(document.querySelector("#financeTrade").value||0);
+    const principal=Math.max(0,sale-down-allowance+productTotal);
+    const apr=Number(document.querySelector("#apr").value||0), term=Number(document.querySelector("#termMonths").value||72);
+    const payment=monthlyPayment(principal,apr,term);
+    document.querySelector("#sumProducts").textContent=money(productTotal);
+    document.querySelector("#sumPrincipal").textContent=money(principal);
+    document.querySelector("#sumPayment").textContent=money(payment)+"/mo";
+    return {productTotal,down,allowance,principal,apr,term,payment};
+  };
+  document.querySelectorAll("#finance-form input,#finance-form select").forEach(x=>x.addEventListener("input",calculate));
+  calculate();
+
+  document.querySelector("#save-finance")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#finance-form"); if(!form.reportValidity()) return;
+    const x=calculate();
+    const productsSelected=[...document.querySelectorAll("[data-finance-product]:checked")].map(el=>el.dataset.financeProduct);
+    const data={
+      dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
+      salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
+      amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"approved"
+    };
+    try{
+      let financeId=existing?.id;
+      if(existing) await updateRecord("financeApplications",existing.id,data);
+      else {const res=await createFinanceApplication(data,state.user);financeId=res.id;}
+      const existingDelivery=state.data.deliveries.find(y=>y.dealId===d.id);
+      let deliveryId=existingDelivery?.id;
+      if(!existingDelivery){
+        const del=await createDelivery({dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",status:"preparing"},state.user);
+        deliveryId=del.id;
+      }
+      await updateRecord("deals",d.id,{stage:"delivery",financeApplicationId:financeId,deliveryId,finalPrice:sale,financeStatus:"approved"});
+      await createNotification({type:"finance",title:"Finance package complete",message:`${d.dealNumber || "Deal"} is ready for vehicle delivery.`,dealId:d.id},state.user);
+      await writeAudit(state.user,"finance.approved","financeApplication",financeId,{dealId:d.id,amountFinanced:x.principal,termMonths:x.term,apr:x.apr});
+      closeModal();await refreshData();setFlash("Finance package finalized. Vehicle moved to Delivery.");
+    }catch(e){setFlash(e.message || "Unable to finalize financing.","error");}
+  });
+}
+
+function deliveryModal(d) {
+  const delivery=state.data.deliveries.find(x=>x.dealId===d.id);
+  const trade=state.data.tradeIns.find(x=>x.dealId===d.id);
+  if(!delivery){setFlash("No delivery record exists for this deal yet.","error");return;}
+  modal("Vehicle Delivery", `
+    <div class="delivery-head"><div class="record-icon">${icon("key-round")}</div><div><span class="eyebrow">FINAL HANDOFF</span><h3>${safe(d.vehicleName || "Vehicle")}</h3><p>${safe(d.customerName || "Customer")} • ${safe(d.dealNumber || "")}</p></div></div>
+    <div class="delivery-checklist">
+      ${["Vehicle cleaned and detailed","Fuel level checked","Documents signed","RP insurance verified","Keys provided","Warranty / coverage explained","Customer walkthrough completed","Final vehicle inspection complete"].map((x,i)=>`<label><input type="checkbox" class="delivery-check" data-index="${i}"><span>${x}</span></label>`).join("")}
+    </div>
+    ${trade ? `<div class="manager-note"><span>TRADE-IN DUE</span><p>${safe(trade.year)} ${safe(trade.make)} ${safe(trade.model)} • allowance ${money(trade.allowance)}. Completing delivery will receive this trade into Sterling inventory.</p></div>` : ""}
+  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="complete-delivery" disabled>${icon("key-round")} Complete Delivery</button>`);
+  const checks=[...document.querySelectorAll(".delivery-check")],button=document.querySelector("#complete-delivery");
+  const sync=()=>button.disabled=!checks.every(x=>x.checked);
+  checks.forEach(x=>x.addEventListener("change",sync));
+  button?.addEventListener("click",async()=>{
+    try{
+      await updateRecord("deliveries",delivery.id,{status:"complete",completedBy:state.user.uid,completedByName:state.profile?.displayName || state.user.email,checklistComplete:true});
+      await updateRecord("deals",d.id,{stage:"complete",deliveryStatus:"complete"});
+      await updateRecord("vehicles",d.vehicleId,{status:"sold",ownerCustomerId:d.customerId || "",ownerCustomerName:d.customerName || ""});
+      if(trade && trade.status!=="received"){
+        await updateRecord("tradeIns",trade.id,{status:"received"});
+        await createVehicle({
+          year:trade.year,make:trade.make,model:trade.model,vin:trade.vin,mileage:trade.mileage,
+          stockNumber:`TRD-${(d.dealNumber || d.id).replace(/[^A-Za-z0-9]/g,"").slice(-8)}`,
+          trim:"Trade-In",color:"Pending Inspection",msrp:trade.acv,price:trade.acv,status:"trade_in",sourceTradeId:trade.id
+        },state.user);
+      }
+      await createNotification({type:"delivery",title:"Vehicle delivered",message:`${d.vehicleName || "Vehicle"} was delivered to ${d.customerName || "the customer"}.`,dealId:d.id},state.user);
+      await writeAudit(state.user,"delivery.completed","delivery",delivery.id,{dealId:d.id,vehicleId:d.vehicleId});
+      closeModal();await refreshData();setFlash("Delivery complete. Vehicle ownership and inventory updated.");
+    }catch(e){setFlash(e.message || "Unable to complete delivery.","error");}
+  });
+}
+
 function futureModule(type) {
   const copy = {
-    finance:["landmark","DRIVE Finance","Finance queue, simulated lending, F&I products, contract generation, and deal finalization are next in the platform build."],
     service:["wrench","DRIVE Service","Repair orders, technician assignment, approvals, inspections, and permanent vehicle service history will live here."],
     parts:["package-search","DRIVE Parts","Parts inventory, technician requests, ordering, bin locations, and backorders will be managed here."],
     audit:["shield-check","Audit & Security","Immutable management activity, approvals, pricing changes, and sensitive actions will be visible here."]
@@ -387,7 +609,7 @@ function currentPage() {
     case "customers": return customers();
     case "queue": return queuePage();
     case "staff": return staffPage();
-    case "finance":
+    case "finance": return financePage();
     case "service":
     case "parts":
     case "audit": return futureModule(state.page);
@@ -615,6 +837,8 @@ function dealDetailModal(d) {
   const vehicle = state.data.vehicles.find(v => v.id === d.vehicleId);
   const activeDrive = state.data.testDrives.find(t => t.dealId === d.id && t.status === "active");
   const managerReview = (d.stage || "").replaceAll("_"," ").toLowerCase() === "manager review";
+  const trade = state.data.tradeIns.find(t => t.dealId === d.id);
+  const finance = state.data.financeApplications.find(x => x.dealId === d.id);
   modal(`Deal ${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}`, `
     <div class="deal-summary">
       <div><span class="eyebrow">CUSTOMER</span><h3>${safe(d.customerName || "Unassigned")}</h3><p>${safe(d.salespersonName || "No salesperson assigned")}</p></div>
@@ -625,17 +849,25 @@ function dealDetailModal(d) {
       <div><span>Opening Price</span><strong>${money(d.price)}</strong></div>
       <div><span>Manager Status</span><strong>${safe(d.approvalStatus || "Not submitted")}</strong></div>
       <div><span>Opened</span><strong>${fmtDate(d.createdAt)}</strong></div>
+      <div><span>Trade-In</span><strong>${trade ? money(trade.allowance) : "None"}</strong></div>
+      <div><span>Finance</span><strong>${finance ? money(finance.monthlyPayment) + "/mo" : "Not started"}</strong></div>
     </div>
     ${d.managerNote ? `<div class="manager-note"><span>Manager Note</span><p>${safe(d.managerNote)}</p></div>` : ""}
     ${activeDrive ? `<div class="alert-card">${icon("navigation")}<div><strong>Test drive active</strong><span>${safe(activeDrive.customerName || d.customerName)} • Start mileage ${Number(activeDrive.startMileage || 0).toLocaleString()}</span></div><button class="btn primary small" data-return-drive="${activeDrive.id}">Check In</button></div>` : ""}
     <div class="workflow-actions">
       ${can("sales.manage") && !activeDrive && vehicle && ["shopping","negotiation"].includes((d.stage || "shopping").toLowerCase()) ? `<button class="btn secondary" id="start-test-drive">${icon("key-round")} Start Test Drive</button>` : ""}
+      ${can("sales.manage") && !["delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn secondary" id="trade-in">${icon("car")} ${trade ? "Edit Trade" : "Appraise Trade"}</button>` : ""}
+      ${(can("finance.manage") || can("deals.manage")) && (d.stage || "").toLowerCase()==="finance" ? `<button class="btn secondary" id="open-finance">${icon("calculator")} Open Finance</button>` : ""}
+      ${(can("finance.manage") || can("deals.manage") || can("sales.manage")) && (d.stage || "").toLowerCase()==="delivery" ? `<button class="btn primary" id="open-delivery">${icon("key-round")} Delivery Checklist</button>` : ""}
       ${can("sales.manage") && !managerReview && !["finance","documents","delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn primary" id="send-desk">${icon("send")} Send to Desk</button>` : ""}
       ${managerReview && isManager() ? `<button class="btn success-btn" id="approve-deal">${icon("check")} Approve to Finance</button><button class="btn secondary" id="counter-deal">${icon("message-square-more")} Counter</button><button class="btn danger-btn" id="decline-deal">${icon("x")} Decline</button>` : ""}
     </div>
   `);
 
   document.querySelector("#start-test-drive")?.addEventListener("click", () => startTestDriveModal(d, vehicle));
+  document.querySelector("#trade-in")?.addEventListener("click", () => tradeInModal(d));
+  document.querySelector("#open-finance")?.addEventListener("click", () => financeWorksheetModal(d));
+  document.querySelector("#open-delivery")?.addEventListener("click", () => deliveryModal(d));
   document.querySelector("[data-return-drive]")?.addEventListener("click", () => completeTestDriveModal(activeDrive));
   document.querySelector("#send-desk")?.addEventListener("click", async () => {
     try {
@@ -789,15 +1021,18 @@ async function refreshData() {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users, testDrives, notifications] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
         listUsers().catch(() => []),
         listCollection("testDrives").catch(() => []),
-        listCollection("notifications", 50).catch(() => [])
+        listCollection("notifications", 50).catch(() => []),
+        listCollection("tradeIns").catch(() => []),
+        listCollection("financeApplications").catch(() => []),
+        listCollection("deliveries").catch(() => [])
       ]);
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -817,6 +1052,11 @@ function bindApp() {
   }));
   document.querySelectorAll("[data-deal]").forEach(row => row.addEventListener("click", () => dealDetailModal(state.data.deals.find(d => d.id === row.dataset.deal))));
   document.querySelectorAll("[data-staff]").forEach(btn => btn.addEventListener("click", () => staffAccessModal(state.data.users.find(u => u.id === btn.dataset.staff))));
+  document.querySelectorAll("[data-finance-deal]").forEach(btn => btn.addEventListener("click", () => {
+    const d=state.data.deals.find(x=>x.id===btn.dataset.financeDeal);
+    if(!d) return;
+    if((d.stage||"").toLowerCase()==="delivery") deliveryModal(d); else financeWorksheetModal(d);
+  }));
   document.querySelectorAll("[data-action]").forEach(btn => btn.addEventListener("click", () => {
     const a = btn.dataset.action;
     if (a === "new-vehicle") vehicleModal();
@@ -824,6 +1064,7 @@ function bindApp() {
     if (a === "new-deal") dealModal();
     if (a === "new-queue") queueModal();
     if (a === "manage-staff") staffAccessModal();
+    if (a === "claim-bootstrap") bootstrapModal();
   }));
   document.querySelectorAll("[data-claim]").forEach(btn => btn.addEventListener("click", async () => {
     try {
@@ -896,6 +1137,7 @@ onAuthStateChanged(auth, async (user) => {
       let profile = await getUserProfile(user.uid);
       if (!profile) profile = await createCustomerProfile(user.uid, user.email || "", user.displayName || "");
       state.profile = profile;
+      state.bootstrap = await getBootstrapStatus().catch(() => ({ initialized: true }));
       await refreshData();
     } catch (e) {
       console.error(e);
@@ -903,7 +1145,8 @@ onAuthStateChanged(auth, async (user) => {
     }
   } else {
     state.profile = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [] };
+    state.bootstrap = null;
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [] };
   }
   state.loading = false;
   state.page = "dashboard";
