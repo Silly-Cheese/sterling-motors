@@ -34,7 +34,9 @@ import {
   createPartRequest,
   createVehicleAcquisition,
   listVehicleAcquisitionsForUser,
-  checkoutQueueEntry
+  checkoutQueueEntry,
+  saveTradeInForDeal,
+  receiveTradeInVehicle
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -553,15 +555,20 @@ function tradeInModal(d) {
       vin:document.querySelector("#tradeVin").value.trim(),mileage:Number(document.querySelector("#tradeMileage").value),
       exterior:document.querySelector("#tradeExterior").value,interior:document.querySelector("#tradeInterior").value,mechanical:document.querySelector("#tradeMechanical").value,
       acv:Number(document.querySelector("#tradeAcv").value),allowance:Number(document.querySelector("#tradeAllowance").value),
-      notes:document.querySelector("#tradeNotes").value.trim(),status:"accepted"
+      notes:document.querySelector("#tradeNotes").value.trim(),
+      status:existing?.status && !["appraised","accepted"].includes(existing.status) ? existing.status : "appraised",
+      managerApprovalStatus:"not_submitted",
+      managerApprovedAcv:null,
+      managerApprovedAllowance:null,
+      managerApprovedBy:"",
+      managerApprovedByName:""
     };
     try {
-      let id=existing?.id;
-      if(existing) await updateRecord("tradeIns",existing.id,data);
-      else { const res=await createTradeIn(data,state.user); id=res.id; }
-      await updateRecord("deals",d.id,{tradeInId:id,tradeAllowance:data.allowance});
+      const saved=await saveTradeInForDeal(data,state.user,existing?.id || "");
+      const id=saved.id;
+      await updateRecord("deals",d.id,{tradeInId:id,tradeAllowance:data.allowance,tradeAcv:data.acv,tradeApprovalStatus:"not_submitted"});
       await writeAudit(state.user,"trade.appraised","tradeIn",id,{dealId:d.id,acv:data.acv,allowance:data.allowance});
-      closeModal(); await refreshData(); setFlash("Trade-in appraisal saved.");
+      closeModal(); await refreshData(); setFlash("Trade-in appraisal saved. Manager approval will be required with the deal.");
     } catch(e){setFlash(e.message || "Unable to save appraisal.","error");}
   });
 }
@@ -589,7 +596,7 @@ function financeWorksheetModal(d) {
     <form id="finance-form" class="form-grid">
       <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="creditTier"><option>Tier 1</option><option>Tier 2</option><option>Tier 3</option><option>Tier 4</option></select></div>
       ${formField("Down Payment","downPayment",String(existing?.downPayment || 0),"number","required min='0'")}
-      <div class="field"><label>Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.allowance ?? d.tradeAllowance ?? 0)}" readonly></div>
+      <div class="field"><label>Manager-Approved Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.managerApprovedAllowance ?? d.tradeAllowance ?? 0)}" readonly></div>
       ${formField("APR","apr",String(existing?.apr || 6.49),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(existing?.termMonths||72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
@@ -662,20 +669,9 @@ function deliveryModal(d) {
       await updateRecord("deliveries",delivery.id,{status:"complete",completedBy:state.user.uid,completedByName:state.profile?.displayName || state.user.email,checklistComplete:true});
       await updateRecord("deals",d.id,{stage:"complete",deliveryStatus:"complete"});
       await updateRecord("vehicles",d.vehicleId,{status:"sold",ownerCustomerId:d.customerId || "",ownerCustomerName:d.customerName || ""});
-      if(trade && !["service_review_required","service_review","reconditioning","service_approved","sales_floor"].includes(trade.status||"")){
-        const receivedVehicle=await createVehicle({
-          year:trade.year,make:trade.make,model:trade.model,vin:trade.vin,mileage:trade.mileage,
-          stockNumber:`TRD-${(d.dealNumber || d.id).replace(/[^A-Za-z0-9]/g,"").slice(-8)}`,
-          trim:"Trade-In",color:"Pending Service Review",msrp:trade.acv,price:trade.acv,
-          status:"service_review",location:"Trade-In Inspection",sourceTradeId:trade.id,acquisitionCost:Number(trade.acv||0)
-        },state.user);
-        await updateRecord("tradeIns",trade.id,{
-          status:"service_review_required",
-          inventoryVehicleId:receivedVehicle.id,
-          receivedBy:state.user.uid,
-          receivedByName:state.profile?.displayName||state.user.email
-        });
-        await createNotification({type:"service",title:"Trade-in needs Service review",message:`${trade.year} ${trade.make} ${trade.model} has been received and is waiting for retail inspection.`,tradeInId:trade.id},state.user);
+      if(trade && !["service_review_required","service_review","reconditioning","service_approved","sales_floor","wholesale"].includes(trade.status||"")){
+        const receivedVehicle=await receiveTradeInVehicle(trade,d,state.user);
+        await createNotification({type:"service",title:"Trade-in needs Service review",message:`${trade.year} ${trade.make} ${trade.model} has been received and is waiting for retail inspection.`,tradeInId:trade.id,vehicleId:receivedVehicle.id},state.user);
       }
       await createNotification({type:"delivery",title:"Vehicle delivered",message:`${d.vehicleName || "Vehicle"} was delivered to ${d.customerName || "the customer"}.`,dealId:d.id},state.user);
       await writeAudit(state.user,"delivery.completed","delivery",delivery.id,{dealId:d.id,vehicleId:d.vehicleId});
@@ -1730,6 +1726,8 @@ function dealDetailModal(d) {
   const managerReview = (d.stage || "").replaceAll("_"," ").toLowerCase() === "manager review";
   const trade = state.data.tradeIns.find(t => t.dealId === d.id);
   const finance = state.data.financeApplications.find(x => x.dealId === d.id);
+  const tradeVariance = trade ? Number(trade.allowance||0) - Number(trade.acv||0) : 0;
+  const tradeApproval = trade?.managerApprovalStatus || d.tradeApprovalStatus || "not_submitted";
   modal(`Deal ${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}`, `
     <div class="deal-summary">
       <div><span class="eyebrow">CUSTOMER</span><h3>${safe(d.customerName || "Unassigned")}</h3><p>${safe(d.salespersonName || "No salesperson assigned")}</p></div>
@@ -1743,6 +1741,19 @@ function dealDetailModal(d) {
       <div><span>Trade-In</span><strong>${trade ? money(trade.allowance) : "None"}</strong></div>
       <div><span>Finance</span><strong>${finance ? money(finance.monthlyPayment) + "/mo" : "Not started"}</strong></div>
     </div>
+    ${trade ? `<div class="trade-desk-card ${managerReview ? "manager-reviewing" : ""}">
+      <div class="trade-desk-head">
+        <div><span class="eyebrow">TRADE-IN • DESK REVIEW</span><h3>${safe(trade.year||"")} ${safe(trade.make||"")} ${safe(trade.model||"")}</h3><p>${Number(trade.mileage||0).toLocaleString()} mi • ${safe(trade.vin||"VIN pending")}</p></div>
+        ${statusPill(tradeApproval)}
+      </div>
+      <div class="trade-value-grid">
+        <div><span>Sales ACV</span><strong>${money(trade.acv)}</strong></div>
+        <div><span>Customer Allowance</span><strong>${money(trade.allowance)}</strong></div>
+        <div class="${tradeVariance>0?"negative-value":"positive-value"}"><span>${tradeVariance>0?"Over-Allowance":"ACV Cushion"}</span><strong>${money(Math.abs(tradeVariance))}</strong></div>
+        <div><span>Manager Approved</span><strong>${trade.managerApprovedAllowance!=null ? money(trade.managerApprovedAllowance) : "Pending"}</strong></div>
+      </div>
+      ${managerReview ? `<div class="trade-manager-warning">${icon("shield-alert")} Deal approval also approves or counters these trade values.</div>` : ""}
+    </div>` : ""}
     ${d.managerNote ? `<div class="manager-note"><span>Manager Note</span><p>${safe(d.managerNote)}</p></div>` : ""}
     ${activeDrive ? `<div class="alert-card">${icon("navigation")}<div><strong>Test drive active</strong><span>${safe(activeDrive.customerName || d.customerName)} • Start mileage ${Number(activeDrive.startMileage || 0).toLocaleString()}</span></div><button class="btn primary small" data-return-drive="${activeDrive.id}">Check In</button></div>` : ""}
     <div class="workflow-actions">
@@ -1762,17 +1773,49 @@ function dealDetailModal(d) {
   document.querySelector("[data-return-drive]")?.addEventListener("click", () => completeTestDriveModal(activeDrive));
   document.querySelector("#send-desk")?.addEventListener("click", async () => {
     try {
-      await updateRecord("deals", d.id, { stage:"manager_review", approvalStatus:"pending" });
-      await createNotification({ type:"approval", title:"Deal approval required", message:`${d.salespersonName || "Sales"} submitted ${d.dealNumber || "a deal"} for ${d.customerName || "a customer"}.`, dealId:d.id }, state.user);
-      await writeAudit(state.user, "deal.sent_to_desk", "deal", d.id, { dealNumber:d.dealNumber });
+      if(trade) {
+        await updateRecord("tradeIns",trade.id,{
+          managerApprovalStatus:"pending",
+          submittedAcv:Number(trade.acv||0),
+          submittedAllowance:Number(trade.allowance||0),
+          submittedBy:state.user.uid,
+          submittedByName:state.profile?.displayName||state.user.email
+        });
+      }
+      await updateRecord("deals", d.id, {
+        stage:"manager_review",
+        approvalStatus:"pending",
+        tradeApprovalStatus:trade ? "pending" : "not_applicable",
+        submittedTradeAcv:trade ? Number(trade.acv||0) : 0,
+        submittedTradeAllowance:trade ? Number(trade.allowance||0) : 0
+      });
+      await createNotification({ type:"approval", title:"Deal approval required", message:`${d.salespersonName || "Sales"} submitted ${d.dealNumber || "a deal"} for ${d.customerName || "a customer"}${trade ? ` with a ${money(trade.allowance)} trade allowance` : ""}.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.sent_to_desk", "deal", d.id, { dealNumber:d.dealNumber, tradeInId:trade?.id||"", tradeAcv:trade?.acv||0, tradeAllowance:trade?.allowance||0 });
       closeModal(); await refreshData(); setFlash("Deal sent to the desk for manager review.");
     } catch (e) { setFlash(e.message || "Unable to submit deal.", "error"); }
   });
   document.querySelector("#approve-deal")?.addEventListener("click", async () => {
     try {
-      await updateRecord("deals", d.id, { stage:"finance", approvalStatus:"approved", approvedBy:state.user.uid, approvedByName:state.profile?.displayName || state.user.email });
-      await createNotification({ type:"approval", title:"Deal approved", message:`${d.dealNumber || "Deal"} was approved and sent to Finance.`, dealId:d.id }, state.user);
-      await writeAudit(state.user, "deal.approved", "deal", d.id, { dealNumber:d.dealNumber });
+      if(trade) {
+        await updateRecord("tradeIns",trade.id,{
+          managerApprovalStatus:"approved",
+          managerApprovedAcv:Number(trade.acv||0),
+          managerApprovedAllowance:Number(trade.allowance||0),
+          managerApprovedBy:state.user.uid,
+          managerApprovedByName:state.profile?.displayName||state.user.email
+        });
+      }
+      await updateRecord("deals", d.id, {
+        stage:"finance",
+        approvalStatus:"approved",
+        tradeApprovalStatus:trade ? "approved" : "not_applicable",
+        tradeAcv:trade ? Number(trade.acv||0) : 0,
+        tradeAllowance:trade ? Number(trade.allowance||0) : 0,
+        approvedBy:state.user.uid,
+        approvedByName:state.profile?.displayName || state.user.email
+      });
+      await createNotification({ type:"approval", title:"Deal approved", message:`${d.dealNumber || "Deal"} was approved${trade ? `, including a ${money(trade.allowance)} trade allowance` : ""}, and sent to Finance.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.approved", "deal", d.id, { dealNumber:d.dealNumber,tradeInId:trade?.id||"",tradeAcv:trade?.acv||0,tradeAllowance:trade?.allowance||0 });
       closeModal(); await refreshData(); setFlash("Deal approved and routed to Finance.");
     } catch (e) { setFlash(e.message || "Unable to approve deal.", "error"); }
   });
@@ -2162,7 +2205,27 @@ async function refreshData() {
         listCollection("partRequests").catch(() => []),
         listCollection("vehicleAcquisitions").catch(() => [])
       ]);
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions });
+      const uniqueTrades=[];
+      const seenTradeDeals=new Set();
+      for(const trade of tradeIns){
+        const key=trade.dealId || trade.id;
+        if(seenTradeDeals.has(key)) continue;
+        seenTradeDeals.add(key);
+        uniqueTrades.push(trade);
+      }
+      const preferredTradeVehicles=new Map(uniqueTrades.filter(t=>t.inventoryVehicleId).map(t=>[t.id,t.inventoryVehicleId]));
+      const uniqueVehicles=[];
+      const seenTradeVehicles=new Set();
+      for(const vehicle of state.data.vehicles){
+        if(!vehicle.sourceTradeId){ uniqueVehicles.push(vehicle); continue; }
+        const preferred=preferredTradeVehicles.get(vehicle.sourceTradeId);
+        if(preferred && vehicle.id!==preferred) continue;
+        if(seenTradeVehicles.has(vehicle.sourceTradeId)) continue;
+        seenTradeVehicles.add(vehicle.sourceTradeId);
+        uniqueVehicles.push(vehicle);
+      }
+      state.data.vehicles=uniqueVehicles;
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions });
     } else {
       state.data.vehicleAcquisitions = await listVehicleAcquisitionsForUser(state.user.uid).catch(() => []);
       Object.assign(state.data,{ deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
