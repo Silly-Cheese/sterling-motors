@@ -1,4 +1,3 @@
-import "./styles.css";
 import { createIcons, icons } from "lucide";
 import {
   createUserWithEmailAndPassword,
@@ -7,7 +6,7 @@ import {
   signOut,
   updateProfile
 } from "firebase/auth";
-import { auth } from "./firebase";
+import { auth } from "./firebase.js";
 import {
   createCustomerProfile,
   getUserProfile,
@@ -29,7 +28,7 @@ import {
   createTradeIn,
   createFinanceApplication,
   createDelivery
-} from "./services";
+} from "./services.js";
 
 const app = document.querySelector("#app");
 
