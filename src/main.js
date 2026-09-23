@@ -651,6 +651,11 @@ function financeAppointmentModal(preselectedClient = null) {
 function manageFinanceAppointmentModal(a) {
   if(!a)return;
   const status=a.status||"requested";
+  const client=financeClientDirectory().find(c=>
+    (a.customerId && c.customerId===a.customerId) ||
+    (a.requesterUid && c.linkedUid===a.requesterUid) ||
+    (a.requesterEmail && String(c.email||"").toLowerCase()===String(a.requesterEmail||"").toLowerCase())
+  );
   modal("Finance Appointment",`
     <div class="finance-appointment-manage-head">
       <span class="record-icon">${icon("calendar-clock")}</span>
@@ -668,6 +673,7 @@ function manageFinanceAppointmentModal(a) {
     ${a.notes?`<div class="manager-note"><span>CUSTOMER NOTES</span><p>${safe(a.notes)}</p></div>`:""}
     ${a.customerMessage?`<div class="finance-customer-message">${icon("message-circle")}<div><span>CUSTOMER-FACING MESSAGE</span><p>${safe(a.customerMessage)}</p></div></div>`:""}
     <div class="workflow-actions">
+      ${client?`<button class="btn secondary" id="appointment-finance-profile">${icon("folder-open")} Finance Profile</button>`:""}
       ${["requested","confirmed"].includes(status)?`<button class="btn primary" id="confirm-finance-appointment">${icon("calendar-check")} ${status==="requested"?"Confirm Appointment":"Reschedule"}</button>`:""}
       ${status==="confirmed"?`<button class="btn secondary" id="checkin-finance-appointment">${icon("user-check")} Check In</button>`:""}
       ${status==="checked_in"?`<button class="btn primary" id="complete-finance-appointment">${icon("circle-check-big")} Complete Consultation</button>`:""}
@@ -675,6 +681,7 @@ function manageFinanceAppointmentModal(a) {
     </div>
   `);
 
+  document.querySelector("#appointment-finance-profile")?.addEventListener("click",()=>financeCustomerDetailModal(client));
   document.querySelector("#confirm-finance-appointment")?.addEventListener("click",()=>confirmFinanceAppointmentModal(a));
   document.querySelector("#checkin-finance-appointment")?.addEventListener("click",async()=>{
     try{
