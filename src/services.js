@@ -324,3 +324,15 @@ export async function listVehicleAcquisitionsForUser(uid, max = 50) {
     .map((entry) => ({ id: entry.id, ...entry.data() }))
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
+
+
+export async function checkoutQueueEntry(id, data, actor) {
+  return updateDoc(doc(db, "queue", id), {
+    ...data,
+    status: "complete",
+    checkedOutBy: actor.uid,
+    checkedOutByName: actor.displayName || actor.email || "Sterling Staff",
+    checkedOutAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
