@@ -1352,7 +1352,6 @@ function queueModal() {
 }
 
 
-funct
 
 function resolveQueueCustomer(q) {
   return state.data.customers.find(c =>
