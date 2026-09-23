@@ -42,18 +42,40 @@ const state = {
   flash: null
 };
 
-const nav = [
-  ["dashboard", "layout-dashboard", "Command Center"],
-  ["sales", "badge-dollar-sign", "Sales"],
-  ["inventory", "car-front", "Inventory"],
-  ["customers", "users", "Customers"],
-  ["queue", "list-checks", "Reception Queue"],
-  ["finance", "landmark", "Finance"],
-  ["service", "wrench", "Service"],
-  ["parts", "package-search", "Parts"],
-  ["staff", "id-card", "Staff"],
-  ["audit", "shield-check", "Audit"]
+const navGroups = [
+  {
+    label:"Overview",
+    items:[
+      ["dashboard","layout-dashboard","Command Center"]
+    ]
+  },
+  {
+    label:"Front Office",
+    items:[
+      ["sales","badge-dollar-sign","Sales"],
+      ["customers","users","Customers"],
+      ["queue","concierge-bell","Reception"],
+      ["inventory","car-front","Inventory"],
+      ["finance","landmark","Finance"]
+    ]
+  },
+  {
+    label:"Fixed Operations",
+    items:[
+      ["service","wrench","Service"],
+      ["parts","package-search","Parts"]
+    ]
+  },
+  {
+    label:"Administration",
+    items:[
+      ["staff","id-card","Staff"],
+      ["audit","shield-check","Audit"]
+    ]
+  }
 ];
+
+const nav = navGroups.flatMap(group => group.items);
 
 const money = (n = 0) => new Intl.NumberFormat("en-US", {
   style: "currency", currency: "USD", maximumFractionDigits: 0
@@ -115,22 +137,26 @@ function shell(content) {
           <div class="brand-mark">S</div>
           <div><strong>STERLING</strong><span>DRIVE</span></div>
         </div>
-        <div class="brand-sub">MOTOR GROUP</div>
+        <div class="brand-sub">MOTOR GROUP <span>•</span> OPERATIONS</div>
 
         <nav class="nav">
-          ${nav.map(([id, ico, label]) => {
-            const blocked = !staff && !["dashboard", "inventory"].includes(id);
-            return `<button class="nav-item ${state.page === id ? "active" : ""} ${blocked ? "locked" : ""}" data-page="${id}" ${blocked ? "disabled" : ""}>
-              ${icon(ico)}<span>${label}</span>${blocked ? icon("lock-keyhole", "nav-lock") : ""}
-            </button>`;
-          }).join("")}
+          ${navGroups.map(group => `<div class="nav-group">
+            <div class="nav-group-label">${group.label}</div>
+            ${group.items.map(([id, ico, label]) => {
+              const blocked = !staff && !["dashboard", "inventory"].includes(id);
+              return `<button class="nav-item ${state.page === id ? "active" : ""} ${blocked ? "locked" : ""}" data-page="${id}" ${blocked ? "disabled" : ""}>
+                <span class="nav-icon">${icon(ico)}</span><span class="nav-label">${label}</span>${blocked ? icon("lock-keyhole", "nav-lock") : state.page === id ? '<span class="active-rail"></span>' : ""}
+              </button>`;
+            }).join("")}
+          </div>`).join("")}
         </nav>
 
         <div class="sidebar-footer">
-          <div class="system-status"><span class="online-dot"></span><div><strong>Systems Operational</strong><small>Firebase connected</small></div></div>
+          <div class="system-status"><span class="online-dot"></span><div><strong>DRIVE Online</strong><small>All core systems operational</small></div><span class="system-live">LIVE</span></div>
           <button class="profile-chip" id="profile-menu">
             <span class="avatar">${initials(profileName)}</span>
-            <span><strong>${safe(profileName)}</strong><small>${safe(role.replaceAll("_", " "))}</small></span>
+            <span><strong>${safe(profileName)}</strong><small>${safe(state.profile?.employeeId || role.replaceAll("_", " "))}</small></span>
+            <span class="profile-role">${safe(state.profile?.department || (staff ? "Sterling Staff" : "Customer"))}</span>
             ${icon("chevron-up")}
           </button>
           <button class="signout" id="signout">${icon("log-out")} Sign out</button>
@@ -140,9 +166,9 @@ function shell(content) {
       <main class="main">
         <header class="topbar">
           <button id="mobile-menu" class="icon-btn mobile-only">${icon("menu")}</button>
-          <div class="breadcrumb"><span>Sterling Motors</span><b>/</b><strong>${safe(pageTitle())}</strong></div>
+          <div class="top-context"><div class="breadcrumb"><span>Sterling Motors</span><b>/</b><strong>${safe(pageTitle())}</strong></div><small>${safe(pageSubtitle())}</small></div>
           <div class="top-actions">
-            <div class="global-search">${icon("search")}<input id="global-search" placeholder="Search DRIVE..." /></div>
+            <button class="global-search" id="command-search" type="button">${icon("search")}<span>Search DRIVE</span><kbd>Ctrl K</kbd></button>
             <button class="icon-btn notification-btn" id="notifications-btn">${icon("bell")}${state.data.notifications.some(n => !n.read) ? `<span class="notification-dot"></span>` : ""}</button>
           </div>
         </header>
@@ -158,6 +184,22 @@ function shell(content) {
 
 function pageTitle() {
   return nav.find(x => x[0] === state.page)?.[2] || "Command Center";
+}
+
+function pageSubtitle() {
+  const copy = {
+    dashboard:"Live dealership overview",
+    sales:"Deals, desk approvals, and test drives",
+    customers:"Customer relationship management",
+    queue:"Front-of-house guest flow",
+    inventory:"Vehicle stock and availability",
+    finance:"F&I, payments, and delivery",
+    service:"Repair and maintenance operations",
+    parts:"Parts inventory and fulfillment",
+    staff:"Employees, roles, and access",
+    audit:"Security and operational history"
+  };
+  return copy[state.page] || "Sterling DRIVE";
 }
 
 function emptyState(iconName, title, body, action = "") {
@@ -179,13 +221,17 @@ function dashboard() {
 
   const recentDeals = deals.slice(0, 5);
   const recentQueue = queue.slice(0, 5);
+  const approvals = deals.filter(d => (d.stage || "").replaceAll("_"," ").toLowerCase() === "manager review").length;
+  const activeTestDrives = state.data.testDrives.filter(d => d.status === "active").length;
+  const financeWaiting = deals.filter(d => (d.stage || "").toLowerCase() === "finance").length;
+  const deliveryWaiting = deals.filter(d => (d.stage || "").toLowerCase() === "delivery").length;
 
   return `
-    <div class="hero-row">
+    <div class="hero-row command-hero">
       <div>
-        <span class="eyebrow">STERLING DRIVE / LIVE OPERATIONS</span>
-        <h1>Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, ${safe((state.profile?.displayName || "team").split(" ")[0])}.</h1>
-        <p>Here’s what’s happening across Sterling Motors right now.</p>
+        <div class="hero-status"><span class="live-pulse"></span> LIVE DEALERSHIP OPERATIONS</div>
+        <h1>Good ${new Date().getHours() < 12 ? "morning" : new Date().getHours() < 18 ? "afternoon" : "evening"}, <em>${safe((state.profile?.displayName || "team").split(" ")[0])}</em>.</h1>
+        <p>See the floor, clear bottlenecks, and keep every deal moving.</p>
       </div>
       <div class="hero-actions">
         ${can("sales.manage") ? `<button class="btn secondary" data-action="new-customer">${icon("user-plus")} New Customer</button>` : ""}
@@ -199,6 +245,13 @@ function dashboard() {
       ${metric("Active Deals", activeDeals, "handshake", "Across the sales floor")}
       ${metric("Waiting Customers", waiting, "clock-3", waiting ? "Needs attention" : "No current wait")}
       ${metric("Closed Revenue", money(revenue), "circle-dollar-sign", "Completed deals")}
+    </div>
+
+    <div class="attention-strip">
+      <button class="attention-item ${approvals ? "needs-attention" : ""}" data-page="sales"><span class="attention-icon">${icon("badge-check")}</span><div><small>Desk Approvals</small><strong>${approvals}</strong></div><span class="attention-copy">${approvals ? "Needs manager review" : "Desk is clear"}</span>${icon("chevron-right")}</button>
+      <button class="attention-item ${activeTestDrives ? "active-attention" : ""}" data-page="sales"><span class="attention-icon">${icon("navigation")}</span><div><small>Test Drives Out</small><strong>${activeTestDrives}</strong></div><span class="attention-copy">${activeTestDrives ? "Vehicles currently out" : "No vehicles out"}</span>${icon("chevron-right")}</button>
+      <button class="attention-item ${financeWaiting ? "active-attention" : ""}" data-page="finance"><span class="attention-icon">${icon("landmark")}</span><div><small>Finance Queue</small><strong>${financeWaiting}</strong></div><span class="attention-copy">${financeWaiting ? "Awaiting F&I" : "Queue is clear"}</span>${icon("chevron-right")}</button>
+      <button class="attention-item ${deliveryWaiting ? "active-attention" : ""}" data-page="finance"><span class="attention-icon">${icon("key-round")}</span><div><small>Deliveries</small><strong>${deliveryWaiting}</strong></div><span class="attention-copy">${deliveryWaiting ? "Ready for handoff" : "No pending deliveries"}</span>${icon("chevron-right")}</button>
     </div>
 
     <div class="dashboard-grid">
@@ -616,6 +669,79 @@ function currentPage() {
     case "audit": return futureModule(state.page);
     default: return dashboard();
   }
+}
+
+
+function commandPalette() {
+  const commands = [
+    ...nav.map(([id, ico, label]) => ({
+      id:"page-"+id, icon:ico, label, description:pageSubtitleFor(id), type:"Navigate", run:()=>{ state.page=id; closeModal(); render(); }
+    })),
+    ...(can("sales.manage") ? [
+      {id:"new-customer",icon:"user-plus",label:"Create Customer",description:"Add a new customer profile",type:"Action",run:()=>{closeModal();customerModal();}},
+      {id:"new-deal",icon:"handshake",label:"Start Deal Jacket",description:"Open a new vehicle deal",type:"Action",run:()=>{closeModal();dealModal();}},
+      {id:"new-queue",icon:"concierge-bell",label:"Check In Guest",description:"Add a guest to Reception",type:"Action",run:()=>{closeModal();queueModal();}}
+    ] : []),
+    ...(can("inventory.manage") ? [
+      {id:"new-vehicle",icon:"car-front",label:"Add Vehicle",description:"Add a vehicle to Sterling inventory",type:"Action",run:()=>{closeModal();vehicleModal();}}
+    ] : [])
+  ];
+
+  const renderCommands = term => {
+    const q=String(term||"").toLowerCase().trim();
+    const filtered=commands.filter(x => !q || (x.label+" "+x.description+" "+x.type).toLowerCase().includes(q));
+    const box=document.querySelector("#command-results");
+    if(!box) return;
+    box.innerHTML=filtered.length ? filtered.map(x=>`<button class="command-result" data-command="${x.id}">
+      <span class="command-result-icon">${icon(x.icon)}</span>
+      <span><strong>${safe(x.label)}</strong><small>${safe(x.description)}</small></span>
+      <em>${x.type}</em>
+    </button>`).join("") : `<div class="command-empty">${icon("search-x")}<strong>No results</strong><small>Try a module, customer action, or dealership workflow.</small></div>`;
+    hydrateIcons();
+    box.querySelectorAll("[data-command]").forEach(btn=>btn.addEventListener("click",()=>commands.find(x=>x.id===btn.dataset.command)?.run()));
+  };
+
+  modal("Search Sterling DRIVE", `
+    <div class="command-palette">
+      <div class="command-input">${icon("search")}<input id="command-input" autocomplete="off" placeholder="Where do you want to go?" /><kbd>ESC</kbd></div>
+      <div class="command-hint"><span>Navigate modules or launch common dealership actions.</span><span><kbd>Ctrl</kbd> <kbd>K</kbd></span></div>
+      <div id="command-results" class="command-results"></div>
+    </div>
+  `);
+  const input=document.querySelector("#command-input");
+  input?.addEventListener("input",()=>renderCommands(input.value));
+  input?.focus();
+  renderCommands("");
+}
+
+function pageSubtitleFor(id) {
+  const current=state.page;
+  state.page=id;
+  const label=pageSubtitle();
+  state.page=current;
+  return label;
+}
+
+function profileOverview() {
+  const p=state.profile || {};
+  const permissions=p.permissions || [];
+  modal("My Sterling Profile", `
+    <div class="profile-overview">
+      <div class="profile-overview-hero">
+        <span class="avatar profile-avatar">${initials(p.displayName || state.user?.email || "Sterling User")}</span>
+        <div><span class="eyebrow">STERLING IDENTITY</span><h3>${safe(p.displayName || state.user?.email || "Sterling User")}</h3><p>${safe(state.user?.email || "")}</p></div>
+        ${statusPill(p.status || "active")}
+      </div>
+      <div class="record-grid">
+        <div><span>Employee ID</span><strong>${safe(p.employeeId || "Customer account")}</strong></div>
+        <div><span>Department</span><strong>${safe(p.department || "—")}</strong></div>
+        <div><span>Position</span><strong>${safe(String(p.role || "customer").replaceAll("_"," "))}</strong></div>
+        <div><span>Access</span><strong>${permissions.includes("*") ? "Full administrator" : permissions.length + " permissions"}</strong></div>
+      </div>
+      ${p.isStaff ? `<div class="profile-access-line">${icon("shield-check")} Your Sterling DRIVE access is managed by dealership administration.</div>` : `<div class="profile-access-line">${icon("user")} Customer account</div>`}
+    </div>
+  `, `<span class="modal-footer-spacer"></span><button class="btn danger-btn" id="profile-signout">${icon("log-out")} Sign Out</button>`);
+  document.querySelector("#profile-signout")?.addEventListener("click",()=>signOut(auth));
 }
 
 function authScreen() {
@@ -1279,6 +1405,8 @@ function bindApp() {
     state.page = btn.dataset.page; render();
   }));
   document.querySelector("#signout")?.addEventListener("click", () => signOut(auth));
+  document.querySelector("#profile-menu")?.addEventListener("click", profileOverview);
+  document.querySelector("#command-search")?.addEventListener("click", commandPalette);
   document.querySelector("#mobile-menu")?.addEventListener("click", () => document.querySelector(".sidebar")?.classList.toggle("open"));
   document.querySelector("#notifications-btn")?.addEventListener("click", notificationCenter);
   document.querySelectorAll("[data-vehicle]").forEach(btn => btn.addEventListener("click", (e) => {
@@ -1386,6 +1514,14 @@ onAuthStateChanged(auth, async (user) => {
   state.loading = false;
   state.page = "dashboard";
   render();
+});
+
+window.addEventListener("keydown", (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+    e.preventDefault();
+    if (state.user && !document.querySelector("#command-input")) commandPalette();
+  }
+  if (e.key === "Escape" && document.querySelector("#modal-root")) closeModal();
 });
 
 render();
