@@ -136,8 +136,12 @@ service cloud.firestore {
     }
 
     match /vehicleAcquisitions/{id} {
-      allow read: if activeStaff() || (signedIn() && resource.data.sellerUid == request.auth.uid);
+      allow read: if
+        activeStaff() ||
+        (signedIn() && resource.data.sellerUid == request.auth.uid);
+
       allow create: if
+        permitted('acquisitions.manage') ||
         permitted('sales.manage') ||
         permitted('inventory.manage') ||
         permitted('admin.full') ||
@@ -145,15 +149,24 @@ service cloud.firestore {
           request.resource.data.sellerUid == request.auth.uid &&
           request.resource.data.status == 'submitted' &&
           request.resource.data.offerAmount == 0);
+
       allow update: if
+        permitted('acquisitions.manage') ||
         permitted('sales.manage') ||
         permitted('inventory.manage') ||
         permitted('admin.full') ||
         (signedIn() &&
           resource.data.sellerUid == request.auth.uid &&
           resource.data.status == 'offer_made' &&
-          request.resource.data.status in ['accepted', 'declined'] &&
-          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
+          request.resource.data.status in ['accepted', 'declined', 'review_requested'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'customerResponse',
+            'customerResponseNote',
+            'respondedAt',
+            'updatedAt'
+          ]));
+
       allow delete: if permitted('admin.full');
     }
 
