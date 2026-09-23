@@ -586,7 +586,7 @@ function financeAppointmentModal(preselectedClient = null) {
   const preselectedContact = staff && preselectedClient && !preselectedClient.customerId ? `<option value="__finance_contact__" data-name="${safe(preselectedClient.name||"Finance Customer")}" data-email="${safe(preselectedClient.email||"")}" data-uid="${safe(preselectedClient.linkedUid||"")}" selected>${safe(preselectedClient.name||"Finance Contact")} • Finance contact</option>` : "";
   modal(staff ? "Schedule Finance Appointment" : "Request Finance Appointment",`
     <form id="finance-appointment-form" class="form-grid">
-      ${staff ? `<div class="field full"><label>Customer</label><select class="plain-input" id="faCustomer" required><option value="">Select customer</option>${customers.map(x=>`<option value="${x.id}" data-name="${safe(x.name||"Customer")}" data-email="${safe(x.email||"")}" data-uid="${safe(x.linkedUid||"")}">${safe(x.name||x.email||x.id)}</option>`).join("")}</select></div>` : ""}
+      ${staff ? `<div class="field full"><label>Customer</label><select class="plain-input" id="faCustomer" required><option value="">Select customer</option>${preselectedContact}${customers.map(x=>`<option value="${x.id}" data-name="${safe(x.name||"Customer")}" data-email="${safe(x.email||"")}" data-uid="${safe(x.linkedUid||"")}">${safe(x.name||x.email||x.id)}</option>`).join("")}</select></div>` : ""}
       <div class="field full"><label>What would you like to discuss?</label><select class="plain-input" id="faPurpose">
         <option value="payment_plan">Payment Plan / Monthly Budget</option>
         <option value="down_payment">Down Payment Options</option>
@@ -605,6 +605,15 @@ function financeAppointmentModal(preselectedClient = null) {
     <div class="rp-disclaimer compact">${icon("info")} This is a consultation request, not a real credit application.</div>
   `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance-appointment">${icon("calendar-plus")} ${staff?"Schedule":"Request Appointment"}</button>`);
 
+  if(staff && preselectedClient?.customerId){
+    const select=document.querySelector("#faCustomer");
+    if(select) select.value=preselectedClient.customerId;
+  }
+  if(preselectedClient?.profile?.monthlyPaymentGoal){
+    const goal=document.querySelector("#faMonthlyGoal");
+    if(goal) goal.value=preselectedClient.profile.monthlyPaymentGoal;
+  }
+
   document.querySelector("#save-finance-appointment")?.addEventListener("click",async()=>{
     const form=document.querySelector("#finance-appointment-form");if(!form.reportValidity())return;
     const btn=document.querySelector("#save-finance-appointment");btn.disabled=true;
@@ -612,7 +621,7 @@ function financeAppointmentModal(preselectedClient = null) {
     if(staff){
       const cs=document.querySelector("#faCustomer");
       const opt=cs.selectedOptions[0];
-      customerId=cs.value;
+      customerId=cs.value==="__finance_contact__" ? "" : cs.value;
       requesterUid=opt.dataset.uid||"";
       requesterName=opt.dataset.name||"Customer";
       requesterEmail=opt.dataset.email||"";
