@@ -43,7 +43,8 @@ import {
   receiveAcquisitionVehicle,
   staffAcceptAcquisitionOffer,
   createFinanceAppointment,
-  listFinanceAppointmentsForUser
+  listFinanceAppointmentsForUser,
+  saveFinanceCustomerProfile
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -52,7 +53,7 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [] },
   bootstrap: null,
   loading: true,
   flash: null
@@ -2877,7 +2878,7 @@ async function refreshData() {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
@@ -2892,7 +2893,8 @@ async function refreshData() {
         listCollection("parts").catch(() => []),
         listCollection("partRequests").catch(() => []),
         listCollection("vehicleAcquisitions").catch(() => []),
-        listCollection("financeAppointments").catch(() => [])
+        listCollection("financeAppointments").catch(() => []),
+        listCollection("financeCustomerProfiles").catch(() => [])
       ]);
       const tradeGroups=new Map();
       for(const trade of tradeIns){
@@ -2920,13 +2922,13 @@ async function refreshData() {
         uniqueVehicles.push(vehicle);
       }
       state.data.vehicles=uniqueVehicles;
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles });
     } else {
       const [vehicleAcquisitions, financeAppointments] = await Promise.all([
         listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),
         listFinanceAppointmentsForUser(state.user.uid).catch(() => [])
       ]);
-      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
+      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[],financeCustomerProfiles:[] });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -3120,7 +3122,7 @@ onAuthStateChanged(auth, async (user) => {
   } else {
     state.profile = null;
     state.bootstrap = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [] };
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [] };
   }
   state.loading = false;
   state.page = "dashboard";
