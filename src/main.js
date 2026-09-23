@@ -867,6 +867,7 @@ function financePage() {
   const followUpClients=clients.filter(client=>client.profile?.nextFollowUpDate && (client.profile?.followUpStatus||"open")!=="complete")
     .sort((a,b)=>String(a.profile.nextFollowUpDate).localeCompare(String(b.profile.nextFollowUpDate)));
   const dueFollowUps=followUpClients.filter(client=>String(client.profile.nextFollowUpDate)<=today).length;
+  const fundingQueue=(state.data.financeApplications||[]).filter(a=>["approved","finalized"].includes(a.status||"") && !["funded","closed"].includes(a.fundingStatus||"pending_contracts")).length;
 
   return `
     ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, payment strategy, F&I packages, consultations, follow-up, contracts, and final vehicle delivery.",
@@ -884,6 +885,7 @@ function financePage() {
       <div class="finance-attention-item ${packageHolds?"needs-attention":""}"><span class="attention-icon">${icon("circle-pause")}</span><div><small>Packages Needing Work</small><strong>${packageHolds}</strong><span>${packageHolds?"Draft or on hold":"No package holds"}</span></div></div>
       <div class="finance-attention-item ${deliveries?"active-attention":""}"><span class="attention-icon">${icon("key-round")}</span><div><small>Pending Deliveries</small><strong>${deliveries}</strong><span>${deliveries?"Finance handoffs open":"Delivery queue clear"}</span></div></div>
       <div class="finance-attention-item ${dueFollowUps?"needs-attention":""}"><span class="attention-icon">${icon("phone-call")}</span><div><small>Follow-Ups Due</small><strong>${dueFollowUps}</strong><span>${dueFollowUps?"Customer contact due":"Nothing overdue"}</span></div></div>
+      <div class="finance-attention-item ${fundingQueue?"needs-attention":""}"><span class="attention-icon">${icon("banknote-arrow-up")}</span><div><small>Funding Queue</small><strong>${fundingQueue}</strong><span>${fundingQueue?"Contracts still open":"Funding clear"}</span></div></div>
     </div>
 
     ${followUpClients.length ? `<div class="panel finance-followup-panel">
@@ -1509,6 +1511,16 @@ function financeWorksheetModal(d, preset = null) {
       <div class="field"><label>Manager-Approved Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.managerApprovedAllowance ?? d.tradeAllowance ?? 0)}" readonly></div>
       ${formField("APR","apr",String(preset?.apr ?? existing?.apr ?? 6.49),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(preset?.termMonths ?? existing?.termMonths ?? 72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
+      <div class="field"><label>Fictional Financing Source</label><select class="plain-input" id="financeSource">
+        ${["Sterling Financial","Horizon Auto Credit","Community Motor Bank","Cash / No Lender"].map(x=>`<option ${x===(preset?.financeSource || existing?.financeSource || "Sterling Financial")?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Program Decision</label><select class="plain-input" id="financeDecision">
+        ${["pending","approved","conditional","declined"].map(x=>`<option value="${x}" ${x===(preset?.financeDecision || existing?.financeDecision || "pending")?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Approval Expiration <span class="optional-label">RP only</span></label><input class="plain-input" id="financeApprovalExpires" type="date" value="${safe(preset?.approvalExpires || existing?.approvalExpires || "")}"></div>
+      <div class="field"><label>Funding Status</label><select class="plain-input" id="financeFundingStatus">
+        ${["pending_contracts","submitted","funded","exception","closed"].map(x=>`<option value="${x}" ${x===(preset?.fundingStatus || existing?.fundingStatus || "pending_contracts")?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}
+      </select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(preset?.internalNotes || existing?.internalNotes || "")}</textarea></div>
     </form>
@@ -1521,6 +1533,15 @@ function financeWorksheetModal(d, preset = null) {
       <div class="waterfall-line subtract"><span>Approved trade allowance</span><strong id="waterfallTrade">-$0</strong></div>
       <div class="waterfall-line subtract"><span>Down payment</span><strong id="waterfallDown">-$0</strong></div>
       <div class="waterfall-total"><span>Amount financed</span><strong id="waterfallPrincipal">$0</strong></div>
+    </div>
+
+    <div class="finance-acceptance-card ${(preset?.acceptance || existing?.acceptance) ? "accepted" : ""}">
+      <div>
+        <span class="eyebrow">CUSTOMER DECISION</span>
+        <strong>${(preset?.acceptance || existing?.acceptance) ? "Payment plan accepted" : "Acceptance not recorded"}</strong>
+        <small>${(preset?.acceptance || existing?.acceptance)?.method==="staff_assisted" ? `Staff-assisted by ${safe((preset?.acceptance || existing?.acceptance)?.acceptedByName || "Sterling Finance")}` : (preset?.acceptance || existing?.acceptance) ? "Customer-present acceptance recorded" : "Present the package before final Delivery handoff."}</small>
+      </div>
+      <button class="btn secondary small" id="record-finance-acceptance">${icon("handshake")} ${(preset?.acceptance || existing?.acceptance) ? "Update Acceptance" : "Record Acceptance"}</button>
     </div>
 
     <div class="finance-readiness">
@@ -1557,6 +1578,7 @@ function financeWorksheetModal(d, preset = null) {
     return {productTotal,down,allowance,principal,apr,term,payment};
   };
   document.querySelectorAll("#finance-form input,#finance-form select").forEach(x=>x.addEventListener("input",calculate));
+  let currentAcceptance=preset?.acceptance || existing?.acceptance || null;
   const readinessInputs=()=>[...document.querySelectorAll("[data-finance-readiness]")];
   const financeReadiness=()=>Object.fromEntries(readinessInputs().map(x=>[x.dataset.financeReadiness,x.checked]));
   const syncReadiness=()=>{
@@ -1565,12 +1587,33 @@ function financeWorksheetModal(d, preset = null) {
     const count=document.querySelector("#finance-readiness-count");
     if(count) count.textContent=`${checked} / ${total}`;
     const finalize=document.querySelector("#save-finance");
+    const decision=document.querySelector("#financeDecision")?.value || "pending";
+    const lenderReady=["approved","conditional"].includes(decision) || document.querySelector("#financeSource")?.value==="Cash / No Lender";
     if(finalize){
-      finalize.disabled=checked!==total;
-      finalize.title=checked===total?"Ready for Delivery":"Complete the Finance review checklist before Delivery";
+      finalize.disabled=checked!==total || !currentAcceptance || !lenderReady;
+      finalize.title=checked!==total ? "Complete the Finance review checklist before Delivery" : !currentAcceptance ? "Record customer acceptance before Delivery" : !lenderReady ? "Record an approved/conditional program decision before Delivery" : "Ready for Delivery";
     }
   };
   readinessInputs().forEach(x=>x.addEventListener("change",syncReadiness));
+  document.querySelector("#financeDecision")?.addEventListener("change",syncReadiness);
+  document.querySelector("#financeSource")?.addEventListener("change",syncReadiness);
+  document.querySelector("#record-finance-acceptance")?.addEventListener("click",()=>{
+    const x=calculate();
+    const productIds=[...document.querySelectorAll("[data-finance-product]:checked")].map(el=>el.dataset.financeProduct);
+    financeAcceptanceModal(d,{
+      creditTier:document.querySelector("#creditTier").value,
+      downPayment:x.down,tradeAllowance:x.allowance,apr:x.apr,termMonths:x.term,
+      products:productIds,productTotal:x.productTotal,amountFinanced:x.principal,
+      monthlyPayment:Number(x.payment.toFixed(2)),
+      financeSource:document.querySelector("#financeSource").value,
+      financeDecision:document.querySelector("#financeDecision").value,
+      approvalExpires:document.querySelector("#financeApprovalExpires").value,
+      fundingStatus:document.querySelector("#financeFundingStatus").value,
+      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
+      readiness:financeReadiness(),
+      acceptance:currentAcceptance
+    });
+  });
   syncReadiness();
 
   document.querySelector("#finance-payment-lab")?.addEventListener("click",()=>financePaymentLabModal(d));
@@ -1582,8 +1625,13 @@ function financeWorksheetModal(d, preset = null) {
       downPayment:x.down,tradeAllowance:x.allowance,apr:x.apr,termMonths:x.term,
       products:productIds,productTotal:x.productTotal,amountFinanced:x.principal,
       monthlyPayment:Number(x.payment.toFixed(2)),
+      financeSource:document.querySelector("#financeSource").value,
+      financeDecision:document.querySelector("#financeDecision").value,
+      approvalExpires:document.querySelector("#financeApprovalExpires").value,
+      fundingStatus:document.querySelector("#financeFundingStatus").value,
       internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
-      readiness:financeReadiness()
+      readiness:financeReadiness(),
+      acceptance:currentAcceptance
     });
   });
   document.querySelectorAll("[data-fi-menu]").forEach(btn=>btn.addEventListener("click",()=>{
@@ -1606,6 +1654,11 @@ function financeWorksheetModal(d, preset = null) {
       dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
       salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
       amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"draft",
+      financeSource:document.querySelector("#financeSource").value,
+      financeDecision:document.querySelector("#financeDecision").value,
+      approvalExpires:document.querySelector("#financeApprovalExpires").value,
+      fundingStatus:document.querySelector("#financeFundingStatus").value,
+      acceptance:currentAcceptance,
       internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
       readiness:financeReadiness(),
       revision:Number(existing?.revision||0)+1,
@@ -1635,6 +1688,11 @@ function financeWorksheetModal(d, preset = null) {
       dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
       salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
       amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"approved",
+      financeSource:document.querySelector("#financeSource").value,
+      financeDecision:document.querySelector("#financeDecision").value,
+      approvalExpires:document.querySelector("#financeApprovalExpires").value,
+      fundingStatus:document.querySelector("#financeFundingStatus").value,
+      acceptance:currentAcceptance,
       internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
       readiness:financeReadiness(),
       revision:Number(existing?.revision||0)+1,
