@@ -970,48 +970,282 @@ function staffAccessModal(user = null) {
   const allUsers = state.data.users;
   const selected = user || allUsers.find(u => !u.isStaff) || allUsers[0];
   if (!selected) { setFlash("No user accounts are available yet.", "error"); return; }
-  const permissions = (selected.permissions || []).join(", ");
-  modal("Manage Employee Access", `<form id="staff-form" class="form-grid">
-    <div class="field full"><label>User Account</label><select class="plain-input" id="staffUser">${allUsers.map(u => `<option value="${u.id}" ${u.id===selected.id?"selected":""}>${safe(u.displayName || u.email || u.id)} ${u.isStaff ? "• Staff" : "• Customer"}</option>`).join("")}</select></div>
-    ${formField("Employee ID","employeeId",selected.employeeId || "SMG-0001")}
-    <div class="field"><label>Department</label><select class="plain-input" id="department">${["Sales","Finance","Service","Parts","Inventory","Reception","Management","Executive"].map(x=>`<option ${selected.department===x?"selected":""}>${x}</option>`).join("")}</select></div>
-    ${formField("Role / Position","staffRole",selected.role || "sales_consultant")}
-    <div class="field"><label>Status</label><select class="plain-input" id="staffStatus">${["active","leave","suspended","terminated"].map(x=>`<option value="${x}" ${selected.status===x?"selected":""}>${x}</option>`).join("")}</select></div>
-    <div class="field full"><label>Permission Set</label><select class="plain-input" id="permissionPreset">
-      <option value="sales">Sales Staff</option><option value="sales_manager">Sales Manager</option><option value="inventory">Inventory</option><option value="reception">Reception</option><option value="finance">Finance</option><option value="service">Service</option><option value="staff_manager">Staff Manager</option><option value="admin">Full Administrator</option><option value="custom">Custom / Existing</option>
-    </select></div>
-    <div class="field full"><label>Permissions</label><textarea class="plain-input textarea" id="staffPermissions" placeholder="sales.manage, customers.manage">${safe(permissions)}</textarea></div>
-  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-staff">${icon("shield-check")} Save Access</button>`);
 
-  const presets={
+  const permissionCatalog = [
+    {
+      group:"Sales & Customers", icon:"handshake",
+      items:[
+        ["sales.manage","Sales Operations","Create customers, run the sales floor, and manage sales workflows."],
+        ["customers.manage","Customer Profiles","Create and update customer CRM records."],
+        ["deals.manage","Deal Jackets","Create and update dealership Deal Jackets."],
+        ["deals.approve","Manager Deal Approval","Approve, counter, or decline deals sent to the desk."],
+        ["queue.manage","Reception Queue","Check in, claim, and route dealership guests."]
+      ]
+    },
+    {
+      group:"Vehicle Operations", icon:"car-front",
+      items:[
+        ["inventory.manage","Vehicle Inventory","Add vehicles and manage stock, pricing, and vehicle status."],
+        ["service.manage","Service Operations","Manage service appointments and repair workflows."],
+        ["parts.manage","Parts Operations","Manage parts inventory, requests, and fulfillment."]
+      ]
+    },
+    {
+      group:"Finance & Delivery", icon:"landmark",
+      items:[
+        ["finance.manage","Finance & F&I","Build RP financing packages, F&I products, and delivery records."]
+      ]
+    },
+    {
+      group:"Administration", icon:"shield-check",
+      items:[
+        ["staff.manage","Staff Administration","View and manage non-privileged staff details."],
+        ["audit.view","Audit Log Access","View Sterling DRIVE security and activity logs."],
+        ["admin.full","Administrator Access","Full administrative capability without using the wildcard permission."]
+      ]
+    }
+  ];
+
+  const presets = {
     sales:["sales.manage","customers.manage","deals.manage","queue.manage"],
     sales_manager:["sales.manage","customers.manage","deals.manage","deals.approve","queue.manage","inventory.manage"],
     inventory:["inventory.manage"],
     reception:["queue.manage","customers.manage"],
-    finance:["finance.manage","deals.manage"],
+    finance:["finance.manage"],
     service:["service.manage","customers.manage"],
+    parts:["parts.manage","inventory.manage"],
     staff_manager:["staff.manage","audit.view"],
     admin:["*"]
   };
-  const selector=document.querySelector("#staffUser");
+
+  const presetMeta = [
+    ["sales","Sales Staff","Sales, customers, deals, and reception"],
+    ["sales_manager","Sales Manager","Sales plus desk approval and inventory"],
+    ["inventory","Inventory","Vehicle inventory only"],
+    ["reception","Reception","Guest queue and customer lookup"],
+    ["finance","Finance","Finance, F&I, and delivery"],
+    ["service","Service","Service operations and customer lookup"],
+    ["parts","Parts","Parts plus inventory visibility"],
+    ["staff_manager","Staff Manager","Staff records and audit visibility"],
+    ["admin","Full Administrator","Complete Sterling DRIVE access"]
+  ];
+
+  const rolesByDepartment = {
+    Sales:["sales_trainee","sales_consultant","senior_sales_consultant","sales_floor_manager","sales_manager","general_sales_manager"],
+    Finance:["finance_associate","finance_manager","senior_finance_manager","director_of_finance"],
+    Service:["service_porter","service_technician","senior_technician","master_technician","service_advisor","senior_service_advisor","shop_foreman","service_manager","director_fixed_operations"],
+    Parts:["parts_associate","parts_specialist","senior_parts_specialist","parts_manager"],
+    Inventory:["inventory_associate","inventory_specialist","inventory_manager","vehicle_acquisition_manager"],
+    Reception:["receptionist","senior_receptionist","guest_services_supervisor"],
+    Management:["department_manager","general_manager"],
+    Executive:["regional_manager","director_operations","vice_president_operations","chief_operating_officer","president","dealer_principal"]
+  };
+
+  const prettyRole = value => String(value || "").replaceAll("_"," ").replace(/\b\w/g, m => m.toUpperCase());
+  const currentPermissions = new Set(selected.permissions || []);
+  const hasWildcard = currentPermissions.has("*");
+  const selectedDepartment = selected.department || "Sales";
+  const currentRole = selected.role || rolesByDepartment[selectedDepartment]?.[0] || "employee";
+
+  modal("Manage Employee Access", `
+    <div class="staff-access-shell">
+      <div class="staff-access-person">
+        <span class="avatar xl">${initials(selected.displayName || selected.email || "Employee")}</span>
+        <div>
+          <span class="eyebrow">${selected.isStaff ? "CURRENT EMPLOYEE" : "CUSTOMER ACCOUNT"}</span>
+          <h3>${safe(selected.displayName || selected.email || "Sterling User")}</h3>
+          <p>${safe(selected.email || "No email")} • ${safe(selected.employeeId || "No employee ID assigned")}</p>
+        </div>
+        ${statusPill(selected.status || (selected.isStaff ? "active" : "customer"))}
+      </div>
+
+      <form id="staff-form">
+        <section class="access-section">
+          <div class="access-section-head"><div><span class="eyebrow">ACCOUNT</span><h4>Employee Assignment</h4></div><p>Select who you are configuring and where they work.</p></div>
+          <div class="form-grid">
+            <div class="field full"><label>User Account</label><select class="plain-input" id="staffUser">${allUsers.map(u => `<option value="${u.id}" ${u.id===selected.id?"selected":""}>${safe(u.displayName || u.email || u.id)} ${u.isStaff ? "• Employee" : "• Customer"}</option>`).join("")}</select></div>
+            ${formField("Employee ID","employeeId",selected.employeeId || "SMG-0002")}
+            <div class="field"><label>Employment Status</label><select class="plain-input" id="staffStatus">
+              <option value="active" ${selected.status==="active"?"selected":""}>Active</option>
+              <option value="leave" ${selected.status==="leave"?"selected":""}>Leave of Absence</option>
+              <option value="suspended" ${selected.status==="suspended"?"selected":""}>Suspended</option>
+              <option value="terminated" ${selected.status==="terminated"?"selected":""}>Terminated</option>
+            </select></div>
+            <div class="field"><label>Department</label><select class="plain-input" id="department">${Object.keys(rolesByDepartment).map(x=>`<option ${selectedDepartment===x?"selected":""}>${x}</option>`).join("")}</select></div>
+            <div class="field"><label>Position</label><select class="plain-input" id="staffRole"></select></div>
+          </div>
+        </section>
+
+        <section class="access-section">
+          <div class="access-section-head permission-heading">
+            <div><span class="eyebrow">ACCESS</span><h4>Permission Preset</h4></div>
+            <p>Start with a role preset, then customize individual permissions below.</p>
+          </div>
+          <div class="preset-grid">
+            ${presetMeta.map(([id,label,desc]) => `<button type="button" class="preset-card" data-permission-preset="${id}">
+              <span class="preset-check">${icon("check")}</span>
+              <strong>${label}</strong><small>${desc}</small>
+            </button>`).join("")}
+          </div>
+        </section>
+
+        <section class="access-section">
+          <div class="access-section-head permission-heading">
+            <div><span class="eyebrow">PERMISSIONS</span><h4>Fine-Tune Access</h4></div>
+            <div class="permission-tools">
+              <button type="button" class="text-btn" id="select-all-perms">Select all</button>
+              <span>•</span>
+              <button type="button" class="text-btn" id="clear-all-perms">Clear</button>
+            </div>
+          </div>
+
+          <div id="wildcard-alert" class="wildcard-alert ${hasWildcard ? "" : "hidden"}">
+            ${icon("crown")} <div><strong>Full Administrator wildcard is active</strong><span>This employee currently has every permission through <code>*</code>. Choose a preset or customize access to replace it.</span></div>
+          </div>
+
+          <div class="permission-groups">
+            ${permissionCatalog.map(group => `<div class="permission-group">
+              <div class="permission-group-title">${icon(group.icon)}<strong>${group.group}</strong></div>
+              <div class="permission-options">
+                ${group.items.map(([id,label,desc]) => `<label class="permission-option">
+                  <input type="checkbox" data-permission="${id}" ${!hasWildcard && currentPermissions.has(id) ? "checked" : ""}>
+                  <span class="permission-checkbox">${icon("check")}</span>
+                  <span class="permission-copy"><strong>${label}</strong><small>${desc}</small><code>${id}</code></span>
+                </label>`).join("")}
+              </div>
+            </div>`).join("")}
+          </div>
+
+          <div class="permission-summary">
+            <div><span class="eyebrow">ACCESS SUMMARY</span><strong id="permission-count">${hasWildcard ? "Full administrator" : currentPermissions.size + " permission" + (currentPermissions.size===1?"":"s")}</strong></div>
+            <div id="permission-summary-chips"></div>
+          </div>
+        </section>
+      </form>
+    </div>
+  `, `
+    ${selected.isStaff && selected.id !== state.user.uid ? `<button class="btn danger-btn" id="remove-staff-access">${icon("user-minus")} Remove Employee Access</button>` : ""}
+    <span class="modal-footer-spacer"></span>
+    <button class="btn secondary" data-close-modal>Cancel</button>
+    <button class="btn primary" id="save-staff">${icon("shield-check")} Save Employee Access</button>
+  `);
+
+  const selector = document.querySelector("#staffUser");
+  const department = document.querySelector("#department");
+  const roleSelect = document.querySelector("#staffRole");
+  const wildcardAlert = document.querySelector("#wildcard-alert");
+  let wildcardActive = hasWildcard;
+
+  const renderRoles = () => {
+    const roles = rolesByDepartment[department.value] || ["employee"];
+    const desired = roles.includes(currentRole) ? currentRole : roles[0];
+    roleSelect.innerHTML = roles.map(role => `<option value="${role}" ${role===desired?"selected":""}>${prettyRole(role)}</option>`).join("");
+  };
+
+  const permissionInputs = () => [...document.querySelectorAll("[data-permission]")];
+
+  const updatePermissionSummary = () => {
+    const checked = permissionInputs().filter(x => x.checked).map(x => x.dataset.permission);
+    const count = document.querySelector("#permission-count");
+    const chips = document.querySelector("#permission-summary-chips");
+    if (wildcardActive) {
+      count.textContent = "Full administrator";
+      chips.innerHTML = '<span class="access-chip admin-chip">All Sterling DRIVE permissions</span>';
+      wildcardAlert.classList.remove("hidden");
+    } else {
+      count.textContent = checked.length + " permission" + (checked.length===1 ? "" : "s");
+      wildcardAlert.classList.add("hidden");
+      chips.innerHTML = checked.length
+        ? checked.map(p => `<span class="access-chip">${safe(permissionCatalog.flatMap(g=>g.items).find(x=>x[0]===p)?.[1] || p)}</span>`).join("")
+        : '<span class="access-chip muted-chip">No operational permissions selected</span>';
+    }
+
+    document.querySelectorAll("[data-permission-preset]").forEach(card => {
+      const id=card.dataset.permissionPreset;
+      const wanted=presets[id] || [];
+      const active = id==="admin"
+        ? wildcardActive
+        : !wildcardActive && wanted.length===checked.length && wanted.every(p=>checked.includes(p));
+      card.classList.toggle("selected",active);
+    });
+  };
+
+  const applyPermissions = perms => {
+    wildcardActive = perms.includes("*");
+    permissionInputs().forEach(input => input.checked = !wildcardActive && perms.includes(input.dataset.permission));
+    updatePermissionSummary();
+  };
+
+  renderRoles();
+  updatePermissionSummary();
+
   selector?.addEventListener("change", () => {
-    closeModal(); staffAccessModal(allUsers.find(u=>u.id===selector.value));
+    closeModal();
+    staffAccessModal(allUsers.find(u => u.id === selector.value));
   });
-  document.querySelector("#permissionPreset")?.addEventListener("change", e => {
-    if(e.target.value !== "custom") document.querySelector("#staffPermissions").value=(presets[e.target.value] || []).join(", ");
+
+  department?.addEventListener("change", () => {
+    const roles = rolesByDepartment[department.value] || ["employee"];
+    roleSelect.innerHTML = roles.map(role => `<option value="${role}">${prettyRole(role)}</option>`).join("");
   });
+
+  document.querySelectorAll("[data-permission-preset]").forEach(card => card.addEventListener("click", () => {
+    applyPermissions(presets[card.dataset.permissionPreset] || []);
+  }));
+
+  permissionInputs().forEach(input => input.addEventListener("change", () => {
+    wildcardActive = false;
+    updatePermissionSummary();
+  }));
+
+  document.querySelector("#select-all-perms")?.addEventListener("click", () => {
+    wildcardActive = false;
+    permissionInputs().forEach(x => x.checked = true);
+    updatePermissionSummary();
+  });
+
+  document.querySelector("#clear-all-perms")?.addEventListener("click", () => {
+    wildcardActive = false;
+    permissionInputs().forEach(x => x.checked = false);
+    updatePermissionSummary();
+  });
+
+  document.querySelector("#remove-staff-access")?.addEventListener("click", async () => {
+    if (!confirm(`Remove Sterling employee access from ${selected.displayName || selected.email || "this account"}? Their customer account will remain.`)) return;
+    try {
+      await updateUserAccess(selected.id,{
+        isStaff:false, employeeId:"", department:"", role:"customer", status:"active", permissions:[]
+      });
+      await writeAudit(state.user,"staff.access_removed","user",selected.id,{});
+      closeModal(); await refreshData(); setFlash("Employee access removed. The customer account remains active.");
+    } catch(e) { setFlash(e.message || "Unable to remove employee access.","error"); }
+  });
+
   document.querySelector("#save-staff")?.addEventListener("click", async () => {
-    const uid=document.querySelector("#staffUser").value;
-    const target=allUsers.find(u=>u.id===uid);
-    const perms=document.querySelector("#staffPermissions").value.split(",").map(x=>x.trim()).filter(Boolean);
+    const uid = document.querySelector("#staffUser").value;
+    const target = allUsers.find(u => u.id === uid);
+    const employeeId = document.querySelector("#employeeId").value.trim();
+    if (!employeeId) {
+      setFlash("Please assign an employee ID before saving.", "error");
+      return;
+    }
+    const perms = wildcardActive ? ["*"] : permissionInputs().filter(x => x.checked).map(x => x.dataset.permission);
     try {
       await updateUserAccess(uid,{
-        isStaff:true, employeeId:document.querySelector("#employeeId").value.trim(),
-        department:document.querySelector("#department").value, role:document.querySelector("#staffRole").value.trim(),
-        status:document.querySelector("#staffStatus").value, permissions:perms
+        isStaff:true,
+        employeeId,
+        department:department.value,
+        role:roleSelect.value,
+        status:document.querySelector("#staffStatus").value,
+        permissions:perms
       });
-      await writeAudit(state.user,"staff.access_updated","user",uid,{ employeeId:document.querySelector("#employeeId").value.trim(), role:document.querySelector("#staffRole").value.trim() });
-      closeModal(); await refreshData(); setFlash(`Access updated for ${target?.displayName || target?.email || "employee"}.`);
+      await writeAudit(state.user,"staff.access_updated","user",uid,{
+        employeeId,
+        department:department.value,
+        role:roleSelect.value,
+        permissionCount:wildcardActive ? "all" : perms.length
+      });
+      closeModal(); await refreshData(); setFlash(`Employee access updated for ${target?.displayName || target?.email || "employee"}.`);
     } catch(e) { setFlash(e.message || "Unable to update staff access.", "error"); }
   });
 }
