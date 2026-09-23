@@ -22,8 +22,11 @@ service cloud.firestore {
       allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'customer' && request.resource.data.isStaff == false && request.resource.data.permissions.size() == 0;
       allow read: if signedIn() && (request.auth.uid == uid || activeStaff());
       allow update: if signedIn() && (
-        permitted('staff.manage') ||
         permitted('admin.full') ||
+        (permitted('staff.manage') &&
+          request.resource.data.permissions == resource.data.permissions &&
+          request.resource.data.isStaff == resource.data.isStaff &&
+          request.resource.data.role == resource.data.role) ||
         (request.auth.uid == uid &&
           request.resource.data.role == resource.data.role &&
           request.resource.data.isStaff == resource.data.isStaff &&
@@ -103,7 +106,7 @@ service cloud.firestore {
 
     match /deliveries/{id} {
       allow read: if activeStaff();
-      allow create, update: if permitted('finance.manage') || permitted('sales.manage') || permitted('deals.manage') || permitted('admin.full');
+      allow create, update: if permitted('finance.manage') || permitted('sales.manage') || permitted('admin.full');
       allow delete: if permitted('admin.full');
     }
 
