@@ -1133,9 +1133,20 @@ function editFinanceApplicationModal(application) {
       ${formField("APR","editApr",String(application.apr||0),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="editTermMonths">${[24,36,48,60,72,84].map(n=>`<option value="${n}" ${Number(application.termMonths||0)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field"><label>Package Status</label><select class="plain-input" id="editFinanceStatus">${["draft","approved","revised","on_hold","finalized","voided"].map(x=>`<option value="${x}" ${(application.status||"approved")===x?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}</select></div>
+      <div class="field"><label>Fictional Financing Source</label><select class="plain-input" id="editFinanceSource">
+        ${["Sterling Financial","Horizon Auto Credit","Community Motor Bank","Cash / No Lender"].map(x=>`<option ${x===(application.financeSource||"Sterling Financial")?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Program Decision</label><select class="plain-input" id="editFinanceDecision">
+        ${["pending","approved","conditional","declined"].map(x=>`<option value="${x}" ${x===(application.financeDecision||"pending")?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Approval Expiration</label><input class="plain-input" id="editApprovalExpires" type="date" value="${safe(application.approvalExpires||"")}"></div>
+      <div class="field"><label>Funding Status</label><select class="plain-input" id="editFundingStatus">
+        ${["pending_contracts","submitted","funded","exception","closed"].map(x=>`<option value="${x}" ${x===(application.fundingStatus||"pending_contracts")?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}
+      </select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-edit-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="editFinanceNotes" placeholder="RP-only notes about this finance package.">${safe(application.internalNotes||"")}</textarea></div>
     </form>
+    ${application.acceptance ? `<div class="finance-acceptance-record">${icon(application.acceptance.method==="staff_assisted"?"user-check":"handshake")}<div><span>PAYMENT PLAN ACCEPTANCE</span><strong>${application.acceptance.method==="staff_assisted"?"Staff-assisted acceptance":"Customer acceptance"} recorded</strong><small>${safe(application.acceptance.acceptedByName||"Sterling Finance")} • ${safe(application.acceptance.acceptedAt||"")}${application.acceptance.note?` • ${safe(application.acceptance.note)}`:""}</small></div></div>` : ""}
     ${revisionHistory.length ? `<div class="finance-revision-history">
       <div class="record-section-head"><div><span class="eyebrow">PACKAGE HISTORY</span><h4>Finance Revisions</h4></div><b>${revisionHistory.length}</b></div>
       <div class="revision-list">${revisionHistory.slice(-5).reverse().map(r=>`<div class="revision-row">
@@ -1184,6 +1195,10 @@ function editFinanceApplicationModal(application) {
       amountFinanced:calc.principal,
       monthlyPayment:Number(calc.payment.toFixed(2)),
       status:document.querySelector("#editFinanceStatus").value,
+      financeSource:document.querySelector("#editFinanceSource").value,
+      financeDecision:document.querySelector("#editFinanceDecision").value,
+      approvalExpires:document.querySelector("#editApprovalExpires").value,
+      fundingStatus:document.querySelector("#editFundingStatus").value,
       internalNotes:document.querySelector("#editFinanceNotes").value.trim(),
       revision:Number(application.revision||0)+1,
       lastRevisionAt:new Date().toISOString(),
@@ -1423,6 +1438,45 @@ function financePaymentLabModal(d) {
   renderScenarios();
 }
 
+function financeAcceptanceModal(d, snapshot, forcedMethod = "") {
+  if(!d || !snapshot)return;
+  const existingMethod=snapshot.acceptance?.method || forcedMethod || "customer_present";
+  modal("Record Finance Acceptance",`
+    <div class="finance-acceptance-hero">
+      <span class="record-icon">${icon("handshake")}</span>
+      <div><span class="eyebrow">PAYMENT PLAN DECISION</span><h3>${safe(d.customerName||"Customer")}</h3><p>${money(snapshot.monthlyPayment||0)}/mo • ${Number(snapshot.termMonths||0)} months • ${Number(snapshot.apr||0).toFixed(2)}% APR</p></div>
+    </div>
+    <div class="field full"><label>Acceptance Method</label><select class="plain-input" id="financeAcceptanceMethod">
+      <option value="customer_present" ${existingMethod==="customer_present"?"selected":""}>Customer Present / Customer Accepted</option>
+      <option value="staff_assisted" ${existingMethod==="staff_assisted"?"selected":""}>Staff-Assisted / Solo RP</option>
+    </select></div>
+    <div class="field full"><label>Acceptance Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeAcceptanceNote" placeholder="Example: Customer selected the Balanced plan after reviewing payment and coverage options.">${safe(snapshot.acceptance?.note||"")}</textarea></div>
+    <div class="finance-acceptance-warning">${icon("shield-check")}<div><strong>Acceptance applies to this Finance package structure.</strong><span>If the payment, APR, term, down payment, or products change materially, Finance should record acceptance again.</span></div></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-finance-acceptance">${icon("handshake")} Record Acceptance</button>`);
+
+  document.querySelector("#confirm-finance-acceptance")?.addEventListener("click",()=>{
+    const method=document.querySelector("#financeAcceptanceMethod").value;
+    const note=document.querySelector("#financeAcceptanceNote").value.trim();
+    const acceptance={
+      method,
+      note,
+      acceptedAt:new Date().toISOString(),
+      acceptedByUid:state.user.uid,
+      acceptedByName:state.profile?.displayName||state.user.email||"Sterling Finance",
+      monthlyPayment:Number(snapshot.monthlyPayment||0),
+      termMonths:Number(snapshot.termMonths||0),
+      apr:Number(snapshot.apr||0),
+      amountFinanced:Number(snapshot.amountFinanced||0),
+      products:[...(snapshot.products||[])]
+    };
+    financeWorksheetModal(d,{
+      ...snapshot,
+      acceptance,
+      readiness:{...(snapshot.readiness||{}),paymentReviewed:true,planSelected:true}
+    });
+  });
+}
+
 function financePackagePreviewModal(d, snapshot) {
   if(!d || !snapshot)return;
   const productLabels={
@@ -1471,13 +1525,13 @@ function financePackagePreviewModal(d, snapshot) {
   `,`
     <button class="btn secondary" id="back-to-finance-package">${icon("arrow-left")} Back to Package</button>
     <span class="modal-footer-spacer"></span>
-    <button class="btn primary" id="preview-select-plan">${icon("check")} Mark Plan Selected</button>
+    <button class="btn secondary" id="preview-staff-accept">${icon("user-check")} Staff-Assisted Accept</button>
+    <button class="btn primary" id="preview-customer-accept">${icon("handshake")} Customer Accepts Plan</button>
   `);
 
   document.querySelector("#back-to-finance-package")?.addEventListener("click",()=>financeWorksheetModal(d,snapshot));
-  document.querySelector("#preview-select-plan")?.addEventListener("click",()=>{
-    financeWorksheetModal(d,{...snapshot,readiness:{...(snapshot.readiness||{}),planSelected:true,paymentReviewed:true}});
-  });
+  document.querySelector("#preview-customer-accept")?.addEventListener("click",()=>financeAcceptanceModal(d,snapshot,"customer_present"));
+  document.querySelector("#preview-staff-accept")?.addEventListener("click",()=>financeAcceptanceModal(d,snapshot,"staff_assisted"));
 }
 
 function financeWorksheetModal(d, preset = null) {
