@@ -917,44 +917,65 @@ function canManageAcquisitions() {
 function acquisitionsPage() {
   const items=state.data.vehicleAcquisitions;
   const staff=!!state.profile?.isStaff;
+  const canManage=canManageAcquisitions();
   const submitted=items.filter(x=>(x.status||"submitted")==="submitted").length;
+  const reviewing=items.filter(x=>(x.status||"")==="under_review" || (x.status||"")==="review_requested").length;
   const offers=items.filter(x=>(x.status||"")==="offer_made").length;
   const accepted=items.filter(x=>(x.status||"")==="accepted").length;
-  const acquired=items.filter(x=>(x.status||"")==="received").length;
 
   return `
     ${pageHeader(staff?"VEHICLE ACQUISITIONS":"SELL YOUR CAR","Sell Your Car to Sterling",
-      staff ? "Appraise customer vehicles, issue Sterling purchase offers, and receive accepted vehicles into inventory." : "Tell us about your vehicle. Sterling Motors can review it and make an RP purchase offer.",
-      `<button class="btn primary" data-action="new-acquisition">${icon("car-front")} ${staff?"New Acquisition":"Sell My Car"}</button>`)}
+      staff ? "Review seller submissions, appraise vehicles, issue purchase offers, and receive accepted vehicles." : "Submit your vehicle, follow Sterling's review, and respond to your purchase offer from one place.",
+      `<button class="btn primary" data-action="new-acquisition">${icon("car-front")} ${staff?"New Submission":"Sell My Car"}</button>`)}
     ${staff ? `<div class="metric-grid">
-      ${metric("New Submissions",submitted,"inbox","Waiting for appraisal")}
-      ${metric("Offers Out",offers,"badge-dollar-sign","Customer decision pending")}
+      ${metric("New Submissions",submitted,"inbox","Waiting for staff review")}
+      ${metric("In Review",reviewing,"clipboard-search","Appraisal work in progress")}
+      ${metric("Offers Out",offers,"badge-dollar-sign","Waiting on seller response")}
       ${metric("Accepted",accepted,"handshake","Ready to receive")}
-      ${metric("Vehicles Acquired",acquired,"warehouse","Received into Sterling")}
     </div>` : `<div class="sell-hero">
       <div class="sell-hero-icon">${icon("car-front")}</div>
-      <div><span class="eyebrow">STERLING VEHICLE BUYING</span><h2>A straightforward way to sell your vehicle.</h2><p>Submit the vehicle, Sterling reviews it, and your offer appears here. No real financial or identity information is required for the RP.</p></div>
+      <div><span class="eyebrow">STERLING VEHICLE BUYING</span><h2>Sell directly to Sterling Motors.</h2><p>Submit your vehicle, follow the review, and accept or decline Sterling's RP offer here. You never need to enter real banking or title information.</p></div>
       <button class="btn primary" data-action="new-acquisition">${icon("plus")} Submit Vehicle</button>
     </div>`}
 
-    <div class="panel no-pad">
-      ${items.length ? `<div class="table-wrap"><table class="data-table">
-        <thead><tr><th>Vehicle</th><th>${staff?"Seller":"Submission"}</th><th>Mileage</th><th>Requested</th><th>Sterling Offer</th><th>Status</th><th></th></tr></thead>
-        <tbody>${items.map(a=>`<tr>
-          <td><strong>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</strong><small class="block">${safe(a.trim||a.color||"")}</small></td>
-          <td>${staff?safe(a.sellerName||a.sellerEmail||"Customer"):fmtDate(a.createdAt)}</td>
-          <td>${Number(a.mileage||0).toLocaleString()} mi</td>
-          <td>${a.requestedPrice?money(a.requestedPrice):"Open"}</td>
-          <td><strong>${a.offerAmount?money(a.offerAmount):"—"}</strong></td>
-          <td>${statusPill(a.status||"submitted")}</td>
-          <td><div class="row-actions">
-            ${staff ? `<button class="btn secondary small" data-acquisition="${a.id}">${icon("clipboard-search")} Review</button>` : ""}
-            ${!staff && a.status==="offer_made" ? `<button class="btn success-btn small" data-acquisition-accept="${a.id}">Accept</button><button class="btn secondary small" data-acquisition-decline="${a.id}">Decline</button>` : ""}
-          </div></td>
-        </tr>`).join("")}</tbody>
-      </table></div>` : emptyState("car-front",staff?"No acquisition submissions":"No vehicles submitted yet",staff?"Customer sell requests will appear here.":"Submit a vehicle and Sterling's RP acquisition team can make an offer.",`<button class="btn primary" data-action="new-acquisition">${icon("plus")} Submit Vehicle</button>`)}
-    </div>
-    <div class="rp-disclaimer">${icon("shield-check")} Vehicle values and offers in Sterling Motors are fictional roleplay data. Do not submit real title numbers, banking information, or sensitive identity data.</div>
+    ${staff && !canManage ? `<div class="acquisition-access-note">${icon("lock-keyhole")}<div><strong>View-only acquisition access</strong><span>Your account can see submissions, but needs Vehicle Acquisitions permission to review vehicles or send offers.</span></div></div>` : ""}
+
+    ${items.length ? (staff ? `
+      <div class="panel no-pad">
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Vehicle</th><th>Seller</th><th>Requested</th><th>Offer</th><th>Owner</th><th>Status</th><th></th></tr></thead>
+          <tbody>${items.map(a=>`<tr>
+            <td><strong>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</strong><small class="block">${Number(a.mileage||0).toLocaleString()} mi • ${safe(a.vin||"VIN pending")}</small></td>
+            <td>${safe(a.sellerName||a.sellerEmail||"Customer")}<small class="block">${safe(a.sellerEmail||"")}</small></td>
+            <td>${a.requestedPrice?money(a.requestedPrice):"Open"}</td>
+            <td><strong>${a.offerAmount?money(a.offerAmount):"—"}</strong><small class="block">${a.offeredByName?safe(a.offeredByName):"No offer sent"}</small></td>
+            <td>${a.appraisedByName?safe(a.appraisedByName):a.reviewStartedByName?safe(a.reviewStartedByName):"Unassigned"}</td>
+            <td>${statusPill(a.status||"submitted")}</td>
+            <td><button class="btn ${["submitted","under_review","review_requested"].includes(a.status||"submitted") && canManage ? "primary" : "secondary"} small" data-acquisition="${a.id}">${icon("clipboard-search")} ${["submitted","under_review","review_requested"].includes(a.status||"submitted") && canManage ? "Work" : "Open"}</button></td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+      </div>
+    ` : `
+      <div class="customer-offer-grid">
+        ${items.map(a=>`<article class="customer-offer-card ${a.status==="offer_made"?"offer-ready":""}">
+          <div class="customer-offer-top">
+            <span class="record-list-icon">${icon("car-front")}</span>
+            <div><span class="eyebrow">${a.status==="offer_made"?"STERLING OFFER READY":"VEHICLE SUBMISSION"}</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${Number(a.mileage||0).toLocaleString()} mi • Submitted ${fmtDate(a.createdAt)}</p></div>
+            ${statusPill(a.status||"submitted")}
+          </div>
+          <div class="customer-offer-values">
+            <div><span>You Requested</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div>
+            <div><span>Sterling Offer</span><strong>${a.offerAmount?money(a.offerAmount):"Pending"}</strong></div>
+          </div>
+          ${a.status==="offer_made" ? `<div class="offer-ready-message">${icon("badge-dollar-sign")} Sterling has completed its review. Open the offer to accept, decline, or ask for another review.</div>` : ""}
+          ${a.status==="accepted" ? `<div class="offer-success-message">${icon("circle-check-big")} You accepted Sterling's offer. The vehicle is ready for dealership intake.</div>` : ""}
+          ${a.status==="review_requested" ? `<div class="offer-review-message">${icon("message-square-more")} You asked Sterling to review the offer again.</div>` : ""}
+          <button class="btn ${a.status==="offer_made"?"primary":"secondary"}" data-acquisition="${a.id}">${icon(a.status==="offer_made"?"badge-dollar-sign":"clipboard-search")} ${a.status==="offer_made"?"View My Offer":"View Submission"}</button>
+        </article>`).join("")}
+      </div>
+    `) : emptyState("car-front",staff?"No acquisition submissions":"No vehicles submitted yet",staff?"Customer vehicle-sale submissions will appear here.":"Submit a vehicle and Sterling's acquisition team can review it.",`<button class="btn primary" data-action="new-acquisition">${icon("plus")} Submit Vehicle</button>`)}
+
+    <div class="rp-disclaimer">${icon("shield-check")} Sterling vehicle purchase values and offers are fictional roleplay data. Do not submit real title numbers, banking information, or sensitive identity data.</div>
   `;
 }
 
