@@ -502,6 +502,238 @@ function bootstrapModal() {
   });
 }
 
+function financePurposeLabel(value) {
+  const labels = {
+    payment_plan:"Payment Plan / Monthly Budget",
+    down_payment:"Down Payment Options",
+    terms:"Term Length / APR Scenarios",
+    existing_deal:"Existing Deal Financing",
+    products:"F&I Products / Coverage",
+    delivery:"Contract / Delivery Questions",
+    general:"General Finance Consultation"
+  };
+  return labels[value] || String(value || "Finance Consultation").replaceAll("_"," ");
+}
+
+function financeAppointmentsPage() {
+  const appointments=state.data.financeAppointments || [];
+  const staff=!!state.profile?.isStaff;
+  const canManage=can("finance.manage") || can("admin.full");
+  const requested=appointments.filter(a=>(a.status||"requested")==="requested").length;
+  const confirmed=appointments.filter(a=>(a.status||"")==="confirmed").length;
+  const checkedIn=appointments.filter(a=>(a.status||"")==="checked_in").length;
+  const completed=appointments.filter(a=>(a.status||"")==="completed").length;
+
+  return `
+    ${pageHeader(staff?"F&I CONSULTATIONS":"FINANCE APPOINTMENTS","Finance Appointments",
+      staff
+        ? "Schedule and manage customer consultations about payment plans, monthly-payment goals, down payments, terms, and F&I questions."
+        : "Meet with Sterling Finance to discuss a fictional payment plan, monthly-payment goal, down payment, term options, or questions about financing.",
+      `<button class="btn primary" data-action="new-finance-appointment">${icon("calendar-plus")} ${staff?"Schedule Appointment":"Request Appointment"}</button>`)}
+
+    ${staff ? `<div class="metric-grid">
+      ${metric("New Requests",requested,"calendar-plus","Waiting for Finance confirmation")}
+      ${metric("Confirmed",confirmed,"calendar-check","Upcoming consultations")}
+      ${metric("Checked In",checkedIn,"user-check","Customers with Finance now")}
+      ${metric("Completed",completed,"circle-check-big","Consultations completed")}
+    </div>` : `
+      <div class="finance-consult-hero">
+        <span class="finance-consult-icon">${icon("landmark")}</span>
+        <div><span class="eyebrow">TALK WITH STERLING FINANCE</span><h2>Plan the payment before you sign.</h2><p>Request a consultation to talk through fictional payment scenarios and deal options with Finance. No real SSN, credit report, income documentation, or banking information is needed.</p></div>
+        <button class="btn primary" data-action="new-finance-appointment">${icon("calendar-plus")} Request Consultation</button>
+      </div>
+    `}
+
+    ${appointments.length ? (staff ? `
+      <div class="panel no-pad">
+        <div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Customer</th><th>Purpose</th><th>Requested</th><th>Scheduled</th><th>Finance Rep</th><th>Status</th><th></th></tr></thead>
+          <tbody>${appointments.map(a=>`<tr>
+            <td><strong>${safe(a.requesterName||"Customer")}</strong><small class="block">${safe(a.requesterEmail||"")}</small></td>
+            <td><strong>${safe(financePurposeLabel(a.purpose))}</strong><small class="block">${a.monthlyGoal?money(a.monthlyGoal)+"/mo goal":"No payment target entered"}</small></td>
+            <td>${safe(a.preferredDate||"—")}<small class="block">${safe(a.preferredTime||"Flexible")}</small></td>
+            <td>${a.confirmedDate?safe(a.confirmedDate):"Not confirmed"}<small class="block">${safe(a.confirmedTime||"")}</small></td>
+            <td>${safe(a.financeRepresentativeName||"Unassigned")}</td>
+            <td>${statusPill(a.status||"requested")}</td>
+            <td><button class="btn ${a.status==="requested"?"primary":"secondary"} small" data-finance-appointment="${a.id}">${icon("calendar-clock")} Manage</button></td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+      </div>
+    ` : `
+      <div class="finance-appointment-grid">
+        ${appointments.map(a=>`<article class="finance-appointment-card ${a.status==="confirmed"?"confirmed":""}">
+          <div class="finance-appointment-head"><span class="record-list-icon">${icon("calendar-clock")}</span><div><span class="eyebrow">${a.status==="confirmed"?"APPOINTMENT CONFIRMED":"FINANCE CONSULTATION"}</span><h3>${safe(financePurposeLabel(a.purpose))}</h3><p>Requested ${fmtDate(a.createdAt)}</p></div>${statusPill(a.status||"requested")}</div>
+          <div class="finance-appointment-details">
+            <div><span>Preferred</span><strong>${safe(a.preferredDate||"—")} ${safe(a.preferredTime||"")}</strong></div>
+            <div><span>Scheduled</span><strong>${a.confirmedDate ? safe(a.confirmedDate+" "+(a.confirmedTime||"")) : "Waiting for confirmation"}</strong></div>
+            <div><span>Finance Representative</span><strong>${safe(a.financeRepresentativeName||"To be assigned")}</strong></div>
+            <div><span>Payment Goal</span><strong>${a.monthlyGoal?money(a.monthlyGoal)+"/mo":"Not specified"}</strong></div>
+          </div>
+          ${a.customerMessage?`<div class="finance-customer-message">${icon("message-circle")}<div><span>FROM STERLING FINANCE</span><p>${safe(a.customerMessage)}</p></div></div>`:""}
+          ${["requested","confirmed"].includes(a.status||"requested") ? `<button class="btn secondary" data-cancel-finance-appointment="${a.id}">${icon("calendar-x")} Cancel Appointment</button>` : ""}
+        </article>`).join("")}
+      </div>
+    `) : emptyState("calendar-clock",staff?"No Finance appointments":"No Finance appointments yet",staff?"Customer consultation requests will appear here.":"Request a consultation when you'd like to discuss payment options with Sterling Finance.",`<button class="btn primary" data-action="new-finance-appointment">${icon("calendar-plus")} Request Appointment</button>`)}
+
+    <div class="rp-disclaimer">${icon("shield-check")} Finance appointments are for Sterling Motors roleplay. Do not enter real SSNs, bank account information, credit reports, or other sensitive financial information.</div>
+  `;
+}
+
+function financeAppointmentModal() {
+  const staff=!!state.profile?.isStaff;
+  const customers=state.data.customers || [];
+  modal(staff ? "Schedule Finance Appointment" : "Request Finance Appointment",`
+    <form id="finance-appointment-form" class="form-grid">
+      ${staff ? `<div class="field full"><label>Customer</label><select class="plain-input" id="faCustomer" required><option value="">Select customer</option>${customers.map(x=>`<option value="${x.id}" data-name="${safe(x.name||"Customer")}" data-email="${safe(x.email||"")}" data-uid="${safe(x.linkedUid||"")}">${safe(x.name||x.email||x.id)}</option>`).join("")}</select></div>` : ""}
+      <div class="field full"><label>What would you like to discuss?</label><select class="plain-input" id="faPurpose">
+        <option value="payment_plan">Payment Plan / Monthly Budget</option>
+        <option value="down_payment">Down Payment Options</option>
+        <option value="terms">Term Length / APR Scenarios</option>
+        <option value="existing_deal">Existing Deal Financing</option>
+        <option value="products">F&I Products / Coverage</option>
+        <option value="delivery">Contract / Delivery Questions</option>
+        <option value="general">General Finance Consultation</option>
+      </select></div>
+      ${formField("Preferred Date","faDate","","date","required")}
+      ${formField("Preferred Time","faTime","","time","required")}
+      ${formField("Monthly Payment Goal (RP only)","faMonthlyGoal","0","number","min='0'")}
+      <div class="field"><label>Time Flexibility</label><select class="plain-input" id="faFlexibility"><option>Exact time preferred</option><option>Within 1 hour</option><option>Morning</option><option>Afternoon</option><option>Any time that day</option></select></div>
+      <div class="field full"><label>What should Finance know? <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="faNotes" placeholder="Example: I want to compare a lower monthly payment with a shorter term. Do not enter real financial account or credit information."></textarea></div>
+    </form>
+    <div class="rp-disclaimer compact">${icon("info")} This is a consultation request, not a real credit application.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance-appointment">${icon("calendar-plus")} ${staff?"Schedule":"Request Appointment"}</button>`);
+
+  document.querySelector("#save-finance-appointment")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#finance-appointment-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#save-finance-appointment");btn.disabled=true;
+    let requesterUid=state.user.uid, requesterName=state.profile?.displayName||state.user.email, requesterEmail=state.user.email||"", customerId="";
+    if(staff){
+      const cs=document.querySelector("#faCustomer");
+      const opt=cs.selectedOptions[0];
+      customerId=cs.value;
+      requesterUid=opt.dataset.uid||"";
+      requesterName=opt.dataset.name||"Customer";
+      requesterEmail=opt.dataset.email||"";
+    }
+    const data={
+      requesterUid,requesterName,requesterEmail,customerId,
+      purpose:document.querySelector("#faPurpose").value,
+      preferredDate:document.querySelector("#faDate").value,
+      preferredTime:document.querySelector("#faTime").value,
+      flexibility:document.querySelector("#faFlexibility").value,
+      monthlyGoal:Number(document.querySelector("#faMonthlyGoal").value||0),
+      notes:document.querySelector("#faNotes").value.trim(),
+      status:staff?"confirmed":"requested",
+      confirmedDate:staff?document.querySelector("#faDate").value:"",
+      confirmedTime:staff?document.querySelector("#faTime").value:"",
+      financeRepresentativeUid:staff?state.user.uid:"",
+      financeRepresentativeName:staff?(state.profile?.displayName||state.user.email):""
+    };
+    try{
+      const result=await createFinanceAppointment(data,state.user);
+      if(staff) await writeAudit(state.user,"finance.appointment_created","financeAppointment",result.id,{customerId,purpose:data.purpose});
+      closeModal();await refreshData();setFlash(staff?"Finance appointment scheduled.":"Finance appointment requested. Sterling Finance can now confirm the time.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to create Finance appointment.","error");}
+  });
+}
+
+function manageFinanceAppointmentModal(a) {
+  if(!a)return;
+  const status=a.status||"requested";
+  modal("Finance Appointment",`
+    <div class="finance-appointment-manage-head">
+      <span class="record-icon">${icon("calendar-clock")}</span>
+      <div><span class="eyebrow">FINANCE CONSULTATION</span><h3>${safe(a.requesterName||"Customer")}</h3><p>${safe(financePurposeLabel(a.purpose))}</p></div>
+      ${statusPill(status)}
+    </div>
+    <div class="record-grid">
+      <div><span>Preferred Date</span><strong>${safe(a.preferredDate||"—")}</strong></div>
+      <div><span>Preferred Time</span><strong>${safe(a.preferredTime||"—")}</strong></div>
+      <div><span>Flexibility</span><strong>${safe(a.flexibility||"—")}</strong></div>
+      <div><span>Payment Goal</span><strong>${a.monthlyGoal?money(a.monthlyGoal)+"/mo":"Not specified"}</strong></div>
+      <div><span>Confirmed</span><strong>${a.confirmedDate?safe(a.confirmedDate+" "+(a.confirmedTime||"")):"Not confirmed"}</strong></div>
+      <div><span>Finance Rep</span><strong>${safe(a.financeRepresentativeName||"Unassigned")}</strong></div>
+    </div>
+    ${a.notes?`<div class="manager-note"><span>CUSTOMER NOTES</span><p>${safe(a.notes)}</p></div>`:""}
+    ${a.customerMessage?`<div class="finance-customer-message">${icon("message-circle")}<div><span>CUSTOMER-FACING MESSAGE</span><p>${safe(a.customerMessage)}</p></div></div>`:""}
+    <div class="workflow-actions">
+      ${["requested","confirmed"].includes(status)?`<button class="btn primary" id="confirm-finance-appointment">${icon("calendar-check")} ${status==="requested"?"Confirm Appointment":"Reschedule"}</button>`:""}
+      ${status==="confirmed"?`<button class="btn secondary" id="checkin-finance-appointment">${icon("user-check")} Check In</button>`:""}
+      ${status==="checked_in"?`<button class="btn primary" id="complete-finance-appointment">${icon("circle-check-big")} Complete Consultation</button>`:""}
+      ${!["completed","cancelled"].includes(status)?`<button class="btn danger-btn" id="cancel-finance-appointment-staff">${icon("calendar-x")} Cancel</button>`:""}
+    </div>
+  `);
+
+  document.querySelector("#confirm-finance-appointment")?.addEventListener("click",()=>confirmFinanceAppointmentModal(a));
+  document.querySelector("#checkin-finance-appointment")?.addEventListener("click",async()=>{
+    try{
+      await updateRecord("financeAppointments",a.id,{status:"checked_in",checkedInAt:new Date().toISOString(),checkedInBy:state.user.uid,checkedInByName:state.profile?.displayName||state.user.email});
+      await writeAudit(state.user,"finance.appointment_checked_in","financeAppointment",a.id,{});
+      closeModal();await refreshData();setFlash("Customer checked in with Finance.");
+    }catch(e){setFlash(e.message||"Unable to check in appointment.","error");}
+  });
+  document.querySelector("#complete-finance-appointment")?.addEventListener("click",()=>completeFinanceAppointmentModal(a));
+  document.querySelector("#cancel-finance-appointment-staff")?.addEventListener("click",()=>cancelFinanceAppointmentModal(a,true));
+}
+
+function confirmFinanceAppointmentModal(a) {
+  modal(a.status==="requested"?"Confirm Finance Appointment":"Reschedule Finance Appointment",`
+    <form id="confirm-fa-form" class="form-grid">
+      ${formField("Appointment Date","faConfirmDate",a.confirmedDate||a.preferredDate||"","date","required")}
+      ${formField("Appointment Time","faConfirmTime",a.confirmedTime||a.preferredTime||"","time","required")}
+      ${formField("Finance Representative","faRep",a.financeRepresentativeName||state.profile?.displayName||state.user.email,"text","required")}
+      <div class="field"><label>Duration</label><select class="plain-input" id="faDuration"><option value="30">30 minutes</option><option value="45">45 minutes</option><option value="60">60 minutes</option></select></div>
+      <div class="field full"><label>Message to Customer <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="faCustomerMessage" placeholder="Example: Bring your Deal Jacket number if you already started a vehicle purchase.">${safe(a.customerMessage||"")}</textarea></div>
+    </form>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-fa-confirmation">${icon("calendar-check")} Confirm Time</button>`);
+  for(const [id,val] of [["faConfirmDate",a.confirmedDate||a.preferredDate||""],["faConfirmTime",a.confirmedTime||a.preferredTime||""],["faRep",a.financeRepresentativeName||state.profile?.displayName||state.user.email]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
+  document.querySelector("#save-fa-confirmation")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#confirm-fa-form");if(!form.reportValidity())return;
+    try{
+      await updateRecord("financeAppointments",a.id,{
+        status:"confirmed",
+        confirmedDate:document.querySelector("#faConfirmDate").value,
+        confirmedTime:document.querySelector("#faConfirmTime").value,
+        durationMinutes:Number(document.querySelector("#faDuration").value||30),
+        financeRepresentativeUid:state.user.uid,
+        financeRepresentativeName:document.querySelector("#faRep").value.trim(),
+        customerMessage:document.querySelector("#faCustomerMessage").value.trim(),
+        confirmedAt:new Date().toISOString()
+      });
+      await writeAudit(state.user,"finance.appointment_confirmed","financeAppointment",a.id,{});
+      closeModal();await refreshData();setFlash("Finance appointment confirmed.");
+    }catch(e){setFlash(e.message||"Unable to confirm appointment.","error");}
+  });
+}
+
+function completeFinanceAppointmentModal(a) {
+  modal("Complete Finance Consultation",`
+    <div class="finance-appointment-manage-head"><span class="record-icon">${icon("circle-check-big")}</span><div><span class="eyebrow">CONSULTATION COMPLETE</span><h3>${safe(a.requesterName||"Customer")}</h3><p>${safe(financePurposeLabel(a.purpose))}</p></div></div>
+    <div class="field full"><label>Internal Consultation Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="faCompletionNotes" placeholder="Internal RP notes about what was discussed. Do not record real sensitive financial information."></textarea></div>
+    <div class="field full"><label>Follow-Up</label><select class="plain-input" id="faFollowUp"><option>No follow-up required</option><option>Customer considering options</option><option>Sales follow-up requested</option><option>Another Finance appointment needed</option><option>Ready to continue Deal Jacket</option></select></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-fa-complete">${icon("circle-check-big")} Complete Appointment</button>`);
+  document.querySelector("#save-fa-complete")?.addEventListener("click",async()=>{
+    try{
+      await updateRecord("financeAppointments",a.id,{status:"completed",completionNotes:document.querySelector("#faCompletionNotes").value.trim(),followUp:document.querySelector("#faFollowUp").value,completedAt:new Date().toISOString(),completedBy:state.user.uid,completedByName:state.profile?.displayName||state.user.email});
+      await writeAudit(state.user,"finance.appointment_completed","financeAppointment",a.id,{followUp:document.querySelector("#faFollowUp").value});
+      closeModal();await refreshData();setFlash("Finance consultation completed.");
+    }catch(e){setFlash(e.message||"Unable to complete appointment.","error");}
+  });
+}
+
+function cancelFinanceAppointmentModal(a,staffAction=false) {
+  modal("Cancel Finance Appointment",`
+    <div class="field full"><label>Cancellation Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="faCancelNote" placeholder="Reason for cancellation..."></textarea></div>
+  `,`<button class="btn secondary" data-close-modal>Keep Appointment</button><button class="btn danger-btn" id="confirm-fa-cancel">${icon("calendar-x")} Cancel Appointment</button>`);
+  document.querySelector("#confirm-fa-cancel")?.addEventListener("click",async()=>{
+    try{
+      await updateRecord("financeAppointments",a.id,{status:"cancelled",cancellationNote:document.querySelector("#faCancelNote").value.trim(),cancelledAt:new Date().toISOString()});
+      if(staffAction) await writeAudit(state.user,"finance.appointment_cancelled","financeAppointment",a.id,{});
+      closeModal();await refreshData();setFlash("Finance appointment cancelled.");
+    }catch(e){setFlash(e.message||"Unable to cancel appointment.","error");}
+  });
+}
+
 function financePage() {
   const financeDeals = state.data.deals.filter(d => ["finance","documents","delivery"].includes((d.stage || "").toLowerCase()));
   const approved = state.data.financeApplications.filter(x => ["approved","finalized"].includes((x.status || "").toLowerCase())).length;
