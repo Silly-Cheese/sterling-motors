@@ -9,7 +9,8 @@ import {
   query,
   serverTimestamp,
   setDoc,
-  updateDoc
+  updateDoc,
+  writeBatch
 } from "firebase/firestore";
 import { db } from "./firebase";
 
@@ -161,6 +162,83 @@ export async function markNotificationRead(id) {
 export async function updateUserAccess(uid, patch) {
   return updateDoc(doc(db, "users", uid), {
     ...patch,
+    updatedAt: serverTimestamp()
+  });
+}
+
+
+export async function getBootstrapStatus() {
+  const ref = doc(db, "system", "bootstrap");
+  const snapshot = await getDoc(ref);
+  return snapshot.exists() ? { initialized: true, ...snapshot.data() } : { initialized: false };
+}
+
+export async function claimBootstrap(user, displayName) {
+  const userRef = doc(db, "users", user.uid);
+  const bootstrapRef = doc(db, "system", "bootstrap");
+  const batch = writeBatch(db);
+
+  batch.set(userRef, {
+    displayName: displayName || user.displayName || user.email || "Dealer Principal",
+    email: user.email || "",
+    role: "dealer_principal",
+    department: "Executive",
+    isStaff: true,
+    status: "active",
+    employeeId: "SMG-0001",
+    permissions: ["*"],
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  batch.set(bootstrapRef, {
+    initialized: true,
+    ownerUid: user.uid,
+    ownerName: displayName || user.displayName || user.email || "Dealer Principal",
+    initializedAt: serverTimestamp()
+  });
+
+  await batch.commit();
+}
+
+export async function createTradeIn(data, actor) {
+  return addDoc(collection(db, "tradeIns"), {
+    ...data,
+    mileage: Number(data.mileage || 0),
+    acv: Number(data.acv || 0),
+    allowance: Number(data.allowance || 0),
+    status: data.status || "appraised",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createFinanceApplication(data, actor) {
+  return addDoc(collection(db, "financeApplications"), {
+    ...data,
+    downPayment: Number(data.downPayment || 0),
+    tradeAllowance: Number(data.tradeAllowance || 0),
+    productTotal: Number(data.productTotal || 0),
+    amountFinanced: Number(data.amountFinanced || 0),
+    apr: Number(data.apr || 0),
+    termMonths: Number(data.termMonths || 0),
+    monthlyPayment: Number(data.monthlyPayment || 0),
+    status: data.status || "draft",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createDelivery(data, actor) {
+  return addDoc(collection(db, "deliveries"), {
+    ...data,
+    status: data.status || "preparing",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
 }
