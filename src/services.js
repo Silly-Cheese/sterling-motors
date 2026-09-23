@@ -242,3 +242,71 @@ export async function createDelivery(data, actor) {
     updatedAt: serverTimestamp()
   });
 }
+
+
+export async function createServiceAppointment(data, actor) {
+  return addDoc(collection(db, "serviceAppointments"), {
+    ...data,
+    status: data.status || "scheduled",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createRepairOrder(data, actor) {
+  return addDoc(collection(db, "repairOrders"), {
+    ...data,
+    mileage: Number(data.mileage || 0),
+    laborTotal: Number(data.laborTotal || 0),
+    partsTotal: Number(data.partsTotal || 0),
+    estimateTotal: Number(data.estimateTotal || 0),
+    status: data.status || "checked_in",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createPart(data, actor) {
+  return addDoc(collection(db, "parts"), {
+    ...data,
+    quantity: Number(data.quantity || 0),
+    reorderPoint: Number(data.reorderPoint || 0),
+    cost: Number(data.cost || 0),
+    retailPrice: Number(data.retailPrice || 0),
+    status: data.status || "active",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createPartRequest(data, actor) {
+  return addDoc(collection(db, "partRequests"), {
+    ...data,
+    quantity: Number(data.quantity || 1),
+    status: data.status || "requested",
+    requestedBy: actor.uid,
+    requestedByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createVehicleAcquisition(data, actor) {
+  return addDoc(collection(db, "vehicleAcquisitions"), {
+    ...data,
+    mileage: Number(data.mileage || 0),
+    requestedPrice: Number(data.requestedPrice || 0),
+    offerAmount: Number(data.offerAmount || 0),
+    status: data.status || "submitted",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Staff",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
