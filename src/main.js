@@ -651,10 +651,396 @@ function deliveryModal(d) {
   });
 }
 
+
+function servicePage() {
+  const appointments=state.data.serviceAppointments;
+  const ros=state.data.repairOrders;
+  const open=ros.filter(r=>!["closed","cancelled"].includes((r.status||"").toLowerCase()));
+  const awaiting=ros.filter(r=>(r.status||"").toLowerCase()==="awaiting_customer_authorization").length;
+  const ready=ros.filter(r=>(r.status||"").toLowerCase()==="ready_for_pickup").length;
+  const today=new Date().toISOString().slice(0,10);
+  const todayAppointments=appointments.filter(a=>a.date===today && !["complete","cancelled"].includes((a.status||"").toLowerCase())).length;
+
+  return `
+    ${pageHeader("FIXED OPERATIONS", "DRIVE Service", "Appointments, Repair Orders, technicians, authorization, parts, and permanent service history.",
+      can("service.manage") ? `<button class="btn secondary" data-action="new-service-appointment">${icon("calendar-plus")} Appointment</button><button class="btn primary" data-action="new-repair-order">${icon("clipboard-plus")} New Repair Order</button>` : "")}
+    <div class="metric-grid">
+      ${metric("Today's Appointments",todayAppointments,"calendar-days","Scheduled for today")}
+      ${metric("Open Repair Orders",open.length,"clipboard-list","Across the service drive")}
+      ${metric("Awaiting Authorization",awaiting,"circle-pause","Customer decision required")}
+      ${metric("Ready for Pickup",ready,"circle-check-big","Completed service work")}
+    </div>
+
+    <div class="service-layout">
+      <div class="panel service-main">
+        <div class="panel-head"><div><span class="eyebrow">SHOP CONTROL</span><h2>Repair Orders</h2></div><span class="toolbar-count">${open.length} open</span></div>
+        ${ros.length ? `<div class="ro-board">
+          ${["checked_in","diagnosis","awaiting_customer_authorization","parts_required","repair_in_progress","quality_inspection","ready_for_pickup"].map(status=>{
+            const items=ros.filter(r=>(r.status||"checked_in").toLowerCase()===status);
+            return `<section class="ro-lane">
+              <div class="ro-lane-head"><span>${status.replaceAll("_"," ")}</span><b>${items.length}</b></div>
+              <div class="ro-lane-stack">${items.length ? items.map(r=>`<button class="ro-card" data-ro="${r.id}">
+                <div><strong>${safe(r.roNumber || r.id.slice(0,8).toUpperCase())}</strong>${statusPill(r.status||"checked_in")}</div>
+                <h3>${safe(r.vehicleName||"Vehicle")}</h3>
+                <p>${safe(r.customerName||"Customer")}</p>
+                <small>${safe(r.technicianName||"Unassigned technician")}</small>
+              </button>`).join("") : '<div class="ro-lane-empty">No work</div>'}</div>
+            </section>`;
+          }).join("")}
+        </div>` : emptyState("wrench","No Repair Orders","Check in a service customer to create the first RO.",can("service.manage")?`<button class="btn primary" data-action="new-repair-order">Create Repair Order</button>`:"")}
+      </div>
+
+      <div class="panel service-side">
+        <div class="panel-head"><div><span class="eyebrow">APPOINTMENTS</span><h2>Service Schedule</h2></div></div>
+        <div class="appointment-list">
+          ${appointments.length ? appointments.slice(0,8).map(a=>`<div class="appointment-row">
+            <div class="appointment-date"><strong>${safe(a.date||"—")}</strong><span>${safe(a.time||"")}</span></div>
+            <div><strong>${safe(a.customerName||"Customer")}</strong><small>${safe(a.vehicleName||"Vehicle")} • ${safe(a.serviceType||"Service")}</small></div>
+            ${statusPill(a.status||"scheduled")}
+            ${can("service.manage") && (a.status||"scheduled")==="scheduled" ? `<button class="icon-btn" data-checkin-appointment="${a.id}" title="Check in">${icon("log-in")}</button>` : ""}
+          </div>`).join("") : `<div class="column-empty">No appointments scheduled</div>`}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function partsPage() {
+  const parts=state.data.parts;
+  const requests=state.data.partRequests;
+  const low=parts.filter(p=>Number(p.quantity||0)<=Number(p.reorderPoint||0)).length;
+  const openReq=requests.filter(r=>["requested","backordered"].includes((r.status||"requested").toLowerCase()));
+  const stockValue=parts.reduce((s,p)=>s+(Number(p.cost||0)*Number(p.quantity||0)),0);
+
+  return `
+    ${pageHeader("FIXED OPERATIONS", "DRIVE Parts", "Stock control, bin locations, technician requests, fulfillment, and backorders.",
+      can("parts.manage") ? `<button class="btn primary" data-action="new-part">${icon("package-plus")} Add Part</button>` : "")}
+    <div class="metric-grid">
+      ${metric("Part Numbers",parts.length,"package-search","Active inventory records")}
+      ${metric("Low Stock",low,"triangle-alert",low?"Reorder attention needed":"Stock levels healthy")}
+      ${metric("Open Requests",openReq.length,"clipboard-clock","From Service technicians")}
+      ${metric("Inventory Cost",money(stockValue),"boxes","Current on-hand cost")}
+    </div>
+    <div class="parts-layout">
+      <div class="panel no-pad parts-inventory-panel">
+        <div class="panel-head padded-head"><div><span class="eyebrow">INVENTORY</span><h2>Parts Catalog</h2></div></div>
+        ${parts.length ? `<div class="table-wrap"><table class="data-table">
+          <thead><tr><th>Part</th><th>Number</th><th>Bin</th><th>On Hand</th><th>Reorder</th><th>Retail</th><th></th></tr></thead>
+          <tbody>${parts.map(p=>`<tr class="${Number(p.quantity||0)<=Number(p.reorderPoint||0)?"low-stock-row":""}">
+            <td><strong>${safe(p.name||"Unnamed Part")}</strong><small class="block">${safe(p.manufacturer||"Sterling Parts")}</small></td>
+            <td>${safe(p.partNumber||"—")}</td><td>${safe(p.bin||"—")}</td>
+            <td><strong>${Number(p.quantity||0)}</strong></td><td>${Number(p.reorderPoint||0)}</td><td>${money(p.retailPrice)}</td>
+            <td>${can("parts.manage")?`<button class="icon-btn" data-part="${p.id}">${icon("settings-2")}</button>`:""}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>` : emptyState("package-open","No parts in inventory","Add part numbers, quantities, pricing, and bin locations.",can("parts.manage")?`<button class="btn primary" data-action="new-part">Add First Part</button>`:"")}
+      </div>
+
+      <div class="panel parts-requests-panel">
+        <div class="panel-head"><div><span class="eyebrow">SERVICE REQUESTS</span><h2>Parts Counter</h2></div><span class="live-badge"><span></span>LIVE</span></div>
+        <div class="parts-request-list">
+          ${requests.length ? requests.slice(0,12).map(r=>`<article class="part-request-card">
+            <div class="part-request-top"><span class="queue-ticket">${safe(r.roNumber||"RO")}</span>${statusPill(r.status||"requested")}</div>
+            <h3>${safe(r.partName||"Part Request")}</h3>
+            <p>Qty ${Number(r.quantity||1)} • ${safe(r.vehicleName||"Vehicle")}</p>
+            <small>Requested by ${safe(r.requestedByName||"Service")}</small>
+            ${can("parts.manage") && ["requested","backordered"].includes((r.status||"requested").toLowerCase()) ? `<button class="btn secondary small" data-fulfill-part-request="${r.id}">${icon("package-check")} Fulfill</button>` : ""}
+          </article>`).join("") : '<div class="column-empty">No technician requests</div>'}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function acquisitionsPage() {
+  const items=state.data.vehicleAcquisitions;
+  const staff=!!state.profile?.isStaff;
+  const submitted=items.filter(x=>(x.status||"submitted")==="submitted").length;
+  const offers=items.filter(x=>(x.status||"")==="offer_made").length;
+  const accepted=items.filter(x=>(x.status||"")==="accepted").length;
+  const acquired=items.filter(x=>(x.status||"")==="received").length;
+
+  return `
+    ${pageHeader(staff?"VEHICLE ACQUISITIONS":"SELL YOUR CAR","Sell Your Car to Sterling",
+      staff ? "Appraise customer vehicles, issue Sterling purchase offers, and receive accepted vehicles into inventory." : "Tell us about your vehicle. Sterling Motors can review it and make an RP purchase offer.",
+      `<button class="btn primary" data-action="new-acquisition">${icon("car-front")} ${staff?"New Acquisition":"Sell My Car"}</button>`)}
+    ${staff ? `<div class="metric-grid">
+      ${metric("New Submissions",submitted,"inbox","Waiting for appraisal")}
+      ${metric("Offers Out",offers,"badge-dollar-sign","Customer decision pending")}
+      ${metric("Accepted",accepted,"handshake","Ready to receive")}
+      ${metric("Vehicles Acquired",acquired,"warehouse","Received into Sterling")}
+    </div>` : `<div class="sell-hero">
+      <div class="sell-hero-icon">${icon("car-front")}</div>
+      <div><span class="eyebrow">STERLING VEHICLE BUYING</span><h2>A straightforward way to sell your vehicle.</h2><p>Submit the vehicle, Sterling reviews it, and your offer appears here. No real financial or identity information is required for the RP.</p></div>
+      <button class="btn primary" data-action="new-acquisition">${icon("plus")} Submit Vehicle</button>
+    </div>`}
+
+    <div class="panel no-pad">
+      ${items.length ? `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Vehicle</th><th>${staff?"Seller":"Submission"}</th><th>Mileage</th><th>Requested</th><th>Sterling Offer</th><th>Status</th><th></th></tr></thead>
+        <tbody>${items.map(a=>`<tr>
+          <td><strong>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</strong><small class="block">${safe(a.trim||a.color||"")}</small></td>
+          <td>${staff?safe(a.sellerName||a.sellerEmail||"Customer"):fmtDate(a.createdAt)}</td>
+          <td>${Number(a.mileage||0).toLocaleString()} mi</td>
+          <td>${a.requestedPrice?money(a.requestedPrice):"Open"}</td>
+          <td><strong>${a.offerAmount?money(a.offerAmount):"—"}</strong></td>
+          <td>${statusPill(a.status||"submitted")}</td>
+          <td><div class="row-actions">
+            ${staff ? `<button class="btn secondary small" data-acquisition="${a.id}">${icon("clipboard-search")} Review</button>` : ""}
+            ${!staff && a.status==="offer_made" ? `<button class="btn success-btn small" data-acquisition-accept="${a.id}">Accept</button><button class="btn secondary small" data-acquisition-decline="${a.id}">Decline</button>` : ""}
+          </div></td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : emptyState("car-front",staff?"No acquisition submissions":"No vehicles submitted yet",staff?"Customer sell requests will appear here.":"Submit a vehicle and Sterling's RP acquisition team can make an offer.",`<button class="btn primary" data-action="new-acquisition">${icon("plus")} Submit Vehicle</button>`)}
+    </div>
+    <div class="rp-disclaimer">${icon("shield-check")} Vehicle values and offers in Sterling Motors are fictional roleplay data. Do not submit real title numbers, banking information, or sensitive identity data.</div>
+  `;
+}
+
+function serviceAppointmentModal() {
+  const customers=state.data.customers;
+  modal("Schedule Service Appointment", `<form id="service-appointment-form" class="form-grid">
+    <div class="field full"><label>Customer</label><select class="plain-input" id="svcCustomer" required><option value="">Select customer</option>${customers.map(c=>`<option value="${c.id}" data-name="${safe(c.name||"Customer")}">${safe(c.name||c.email||c.id)}</option>`).join("")}</select></div>
+    ${formField("Vehicle","svcVehicle","2026 Ford Mustang GT","text","required")}
+    <div class="field"><label>Service Type</label><select class="plain-input" id="svcType"><option>Oil Change</option><option>Maintenance</option><option>Diagnosis</option><option>Brake Service</option><option>Tire Service</option><option>Inspection</option><option>Recall</option><option>General Repair</option></select></div>
+    ${formField("Date","svcDate","","date","required")}
+    ${formField("Time","svcTime","","time","required")}
+    <div class="field full"><label>Customer Concern / Notes</label><textarea class="plain-input textarea" id="svcNotes" placeholder="What is the customer bringing the vehicle in for?"></textarea></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-service-appointment">${icon("calendar-check")} Schedule</button>`);
+  document.querySelector("#save-service-appointment")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#service-appointment-form");if(!form.reportValidity())return;
+    const cs=document.querySelector("#svcCustomer"),data={
+      customerId:cs.value,customerName:cs.selectedOptions[0].dataset.name,
+      vehicleName:document.querySelector("#svcVehicle").value.trim(),
+      serviceType:document.querySelector("#svcType").value,date:document.querySelector("#svcDate").value,time:document.querySelector("#svcTime").value,
+      notes:document.querySelector("#svcNotes").value.trim(),status:"scheduled"
+    };
+    try{const res=await createServiceAppointment(data,state.user);await writeAudit(state.user,"service.appointment_created","serviceAppointment",res.id,data);closeModal();await refreshData();setFlash("Service appointment scheduled.");}
+    catch(e){setFlash(e.message||"Unable to schedule appointment.","error");}
+  });
+}
+
+function repairOrderModal(prefill={}) {
+  const customers=state.data.customers;
+  const techs=state.data.users.filter(u=>u.isStaff && u.status==="active" && ["Service","Management","Executive"].includes(u.department));
+  const roNumber=`RO-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+  modal("Create Repair Order", `<form id="ro-form" class="form-grid">
+    ${formField("RO Number","roNumber",roNumber,"text","required")}
+    <div class="field"><label>Customer</label><select class="plain-input" id="roCustomer" required><option value="">Select customer</option>${customers.map(x=>`<option value="${x.id}" data-name="${safe(x.name||"Customer")}" ${prefill.customerId===x.id?"selected":""}>${safe(x.name||x.email||x.id)}</option>`).join("")}</select></div>
+    ${formField("Vehicle","roVehicle",prefill.vehicleName||"2026 Ford Mustang GT","text","required")}
+    ${formField("VIN","roVin",prefill.vin||"VIN")}
+    ${formField("Mileage","roMileage",String(prefill.mileage||0),"number","required min='0'")}
+    <div class="field"><label>Assign Technician</label><select class="plain-input" id="roTech"><option value="">Unassigned</option>${techs.map(t=>`<option value="${t.id}" data-name="${safe(t.displayName||t.email)}">${safe(t.displayName||t.email)} • ${safe(String(t.role||"").replaceAll("_"," "))}</option>`).join("")}</select></div>
+    <div class="field full"><label>Customer Concern</label><textarea class="plain-input textarea" id="roComplaint" required placeholder="Customer states...">${safe(prefill.complaint||prefill.notes||"")}</textarea></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-ro">${icon("clipboard-plus")} Open Repair Order</button>`);
+  const rn=document.querySelector("#roNumber");if(rn && !rn.value)rn.value=roNumber;
+  document.querySelector("#save-ro")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#ro-form");if(!form.reportValidity())return;
+    const cs=document.querySelector("#roCustomer"),ts=document.querySelector("#roTech");
+    const data={
+      roNumber:document.querySelector("#roNumber").value.trim()||roNumber,
+      customerId:cs.value,customerName:cs.selectedOptions[0].dataset.name,
+      vehicleName:document.querySelector("#roVehicle").value.trim(),vin:document.querySelector("#roVin").value.trim(),mileage:Number(document.querySelector("#roMileage").value||0),
+      complaint:document.querySelector("#roComplaint").value.trim(),
+      technicianUid:ts.value||"",technicianName:ts.value?ts.selectedOptions[0].dataset.name:"",advisorUid:state.user.uid,advisorName:state.profile?.displayName||state.user.email,
+      status:"checked_in",laborTotal:0,partsTotal:0,estimateTotal:0,diagnosis:"",recommendedWork:""
+    };
+    try{const res=await createRepairOrder(data,state.user);if(prefill.appointmentId)await updateRecord("serviceAppointments",prefill.appointmentId,{status:"checked_in",repairOrderId:res.id});await writeAudit(state.user,"service.ro_created","repairOrder",res.id,{roNumber:data.roNumber});closeModal();await refreshData();setFlash("Repair Order opened.");}
+    catch(e){setFlash(e.message||"Unable to create Repair Order.","error");}
+  });
+}
+
+function repairOrderDetailModal(ro) {
+  if(!ro)return;
+  const requests=state.data.partRequests.filter(x=>x.repairOrderId===ro.id);
+  modal(`Repair Order ${safe(ro.roNumber||"")}`,`
+    <div class="ro-detail-hero"><div class="record-icon">${icon("wrench")}</div><div><span class="eyebrow">SERVICE RECORD</span><h3>${safe(ro.vehicleName||"Vehicle")}</h3><p>${safe(ro.customerName||"Customer")} • ${Number(ro.mileage||0).toLocaleString()} mi</p></div>${statusPill(ro.status||"checked_in")}</div>
+    <div class="service-concern"><span>CUSTOMER CONCERN</span><p>${safe(ro.complaint||"No concern entered.")}</p></div>
+    <div class="record-grid">
+      <div><span>Technician</span><strong>${safe(ro.technicianName||"Unassigned")}</strong></div>
+      <div><span>Labor</span><strong>${money(ro.laborTotal)}</strong></div>
+      <div><span>Parts</span><strong>${money(ro.partsTotal)}</strong></div>
+      <div><span>Estimate</span><strong>${money(ro.estimateTotal)}</strong></div>
+      <div><span>VIN</span><strong>${safe(ro.vin||"—")}</strong></div>
+      <div><span>Opened</span><strong>${fmtDate(ro.createdAt)}</strong></div>
+    </div>
+    ${ro.diagnosis?`<div class="manager-note"><span>DIAGNOSIS</span><p>${safe(ro.diagnosis)}</p></div>`:""}
+    ${ro.recommendedWork?`<div class="manager-note"><span>RECOMMENDED WORK</span><p>${safe(ro.recommendedWork)}</p></div>`:""}
+    ${requests.length?`<div class="ro-parts"><span class="eyebrow">PART REQUESTS</span>${requests.map(r=>`<div><strong>${safe(r.partName||"Part")}</strong><small>Qty ${Number(r.quantity||1)}</small>${statusPill(r.status||"requested")}</div>`).join("")}</div>`:""}
+    <div class="workflow-actions">
+      ${can("service.manage") && ["checked_in","diagnosis"].includes(ro.status||"checked_in")?`<button class="btn primary" id="diagnose-ro">${icon("stethoscope")} Enter Diagnosis</button>`:""}
+      ${can("service.manage") && ro.status==="awaiting_customer_authorization"?`<button class="btn success-btn" id="authorize-ro">${icon("check")} Authorize Repairs</button>`:""}
+      ${can("service.manage") && ["awaiting_customer_authorization","parts_required","repair_in_progress"].includes(ro.status||"")?`<button class="btn secondary" id="request-ro-part">${icon("package-plus")} Request Part</button>`:""}
+      ${can("service.manage") && ["repair_in_progress","parts_required"].includes(ro.status||"")?`<button class="btn primary" id="quality-ro">${icon("clipboard-check")} Send to Quality</button>`:""}
+      ${can("service.manage") && ro.status==="quality_inspection"?`<button class="btn primary" id="ready-ro">${icon("circle-check-big")} Ready for Pickup</button>`:""}
+      ${can("service.manage") && ro.status==="ready_for_pickup"?`<button class="btn primary" id="close-ro">${icon("archive")} Close Repair Order</button>`:""}
+    </div>
+  `);
+  document.querySelector("#diagnose-ro")?.addEventListener("click",()=>diagnosisModal(ro));
+  document.querySelector("#request-ro-part")?.addEventListener("click",()=>partRequestModal(ro));
+  const transition=async(id,status,message)=>{
+    try{await updateRecord("repairOrders",ro.id,{status});await writeAudit(state.user,`service.ro_${status}`,"repairOrder",ro.id,{roNumber:ro.roNumber});closeModal();await refreshData();setFlash(message);}
+    catch(e){setFlash(e.message||"Unable to update Repair Order.","error");}
+  };
+  document.querySelector("#authorize-ro")?.addEventListener("click",()=>transition("authorize","repair_in_progress","Repairs authorized. Work may begin."));
+  document.querySelector("#quality-ro")?.addEventListener("click",()=>transition("quality","quality_inspection","Repair Order sent to quality inspection."));
+  document.querySelector("#ready-ro")?.addEventListener("click",()=>transition("ready","ready_for_pickup","Vehicle marked ready for pickup."));
+  document.querySelector("#close-ro")?.addEventListener("click",()=>transition("close","closed","Repair Order closed and retained in service history."));
+}
+
+function diagnosisModal(ro) {
+  modal("Diagnosis & Estimate",`<form id="diagnosis-form" class="form-grid">
+    <div class="field full"><label>Diagnosis</label><textarea class="plain-input textarea" id="roDiagnosis" required placeholder="Technician findings...">${safe(ro.diagnosis||"")}</textarea></div>
+    <div class="field full"><label>Recommended Work</label><textarea class="plain-input textarea" id="roRecommended" required placeholder="Repairs recommended to the customer...">${safe(ro.recommendedWork||"")}</textarea></div>
+    ${formField("Labor Estimate","roLabor",String(ro.laborTotal||0),"number","required min='0'")}
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-diagnosis">${icon("send")} Send for Authorization</button>`);
+  document.querySelector("#save-diagnosis")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#diagnosis-form");if(!form.reportValidity())return;
+    const labor=Number(document.querySelector("#roLabor").value||0),parts=Number(ro.partsTotal||0);
+    try{await updateRecord("repairOrders",ro.id,{diagnosis:document.querySelector("#roDiagnosis").value.trim(),recommendedWork:document.querySelector("#roRecommended").value.trim(),laborTotal:labor,estimateTotal:labor+parts,status:"awaiting_customer_authorization"});await writeAudit(state.user,"service.diagnosis_completed","repairOrder",ro.id,{estimateTotal:labor+parts});closeModal();await refreshData();setFlash("Diagnosis saved. Repair Order is awaiting customer authorization.");}
+    catch(e){setFlash(e.message||"Unable to save diagnosis.","error");}
+  });
+}
+
+function partRequestModal(ro) {
+  const parts=state.data.parts;
+  if(!parts.length){setFlash("No parts exist in DRIVE Parts yet.","error");return;}
+  modal("Request Part",`<form id="part-request-form" class="form-grid">
+    <div class="field full"><label>Repair Order</label><input class="plain-input" value="${safe(ro.roNumber||"")}" disabled></div>
+    <div class="field full"><label>Part</label><select class="plain-input" id="requestPart" required><option value="">Select part</option>${parts.map(p=>`<option value="${p.id}" data-name="${safe(p.name||"Part")}" data-price="${Number(p.retailPrice||0)}">${safe(p.partNumber||"")} • ${safe(p.name||"Part")} • ${Number(p.quantity||0)} on hand</option>`).join("")}</select></div>
+    ${formField("Quantity","requestQty","1","number","required min='1'")}
+    <div class="field full"><label>Technician Note</label><textarea class="plain-input textarea" id="requestNote" placeholder="Why is this part needed?"></textarea></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-part-request">${icon("package-plus")} Send to Parts</button>`);
+  document.querySelector("#save-part-request")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#part-request-form");if(!form.reportValidity())return;
+    const ps=document.querySelector("#requestPart"),data={repairOrderId:ro.id,roNumber:ro.roNumber||"",vehicleName:ro.vehicleName||"",partId:ps.value,partName:ps.selectedOptions[0].dataset.name,unitPrice:Number(ps.selectedOptions[0].dataset.price||0),quantity:Number(document.querySelector("#requestQty").value||1),note:document.querySelector("#requestNote").value.trim(),status:"requested"};
+    try{const res=await createPartRequest(data,state.user);await updateRecord("repairOrders",ro.id,{status:"parts_required"});await writeAudit(state.user,"parts.requested","partRequest",res.id,{repairOrderId:ro.id,partId:data.partId,quantity:data.quantity});closeModal();await refreshData();setFlash("Part request sent to Parts.");}
+    catch(e){setFlash(e.message||"Unable to request part.","error");}
+  });
+}
+
+function newPartModal() {
+  modal("Add Part to Inventory",`<form id="new-part-form" class="form-grid">
+    ${formField("Part Number","partNumber","SMG-BRK-001","text","required")}
+    ${formField("Part Name","partName","Front Brake Pad Set","text","required")}
+    ${formField("Manufacturer","partManufacturer","OEM")}
+    ${formField("Bin Location","partBin","B14-3","text","required")}
+    ${formField("Quantity","partQty","10","number","required min='0'")}
+    ${formField("Reorder Point","partReorder","3","number","required min='0'")}
+    ${formField("Unit Cost","partCost","65","number","required min='0'")}
+    ${formField("Retail Price","partRetail","129","number","required min='0'")}
+    <div class="field full"><label>Compatibility / Notes</label><textarea class="plain-input textarea" id="partNotes" placeholder="Compatible models, years, internal notes..."></textarea></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-new-part">${icon("package-plus")} Add Part</button>`);
+  document.querySelector("#save-new-part")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#new-part-form");if(!form.reportValidity())return;
+    const data={partNumber:document.querySelector("#partNumber").value.trim(),name:document.querySelector("#partName").value.trim(),manufacturer:document.querySelector("#partManufacturer").value.trim(),bin:document.querySelector("#partBin").value.trim(),quantity:Number(document.querySelector("#partQty").value||0),reorderPoint:Number(document.querySelector("#partReorder").value||0),cost:Number(document.querySelector("#partCost").value||0),retailPrice:Number(document.querySelector("#partRetail").value||0),notes:document.querySelector("#partNotes").value.trim()};
+    try{const res=await createPart(data,state.user);await writeAudit(state.user,"parts.part_created","part",res.id,{partNumber:data.partNumber});closeModal();await refreshData();setFlash("Part added to inventory.");}
+    catch(e){setFlash(e.message||"Unable to add part.","error");}
+  });
+}
+
+function partDetailModal(part) {
+  if(!part)return;
+  modal(safe(part.name||"Part"),`
+    <div class="record-hero"><div class="record-icon">${icon("package")}</div><div><span class="eyebrow">PARTS INVENTORY</span><h3>${safe(part.name||"Part")}</h3><p>${safe(part.partNumber||"")} • Bin ${safe(part.bin||"—")}</p></div>${Number(part.quantity||0)<=Number(part.reorderPoint||0)?statusPill("low_stock"):statusPill("in_stock")}</div>
+    <div class="record-grid"><div><span>On Hand</span><strong>${Number(part.quantity||0)}</strong></div><div><span>Reorder Point</span><strong>${Number(part.reorderPoint||0)}</strong></div><div><span>Retail</span><strong>${money(part.retailPrice)}</strong></div><div><span>Cost</span><strong>${money(part.cost)}</strong></div><div><span>Manufacturer</span><strong>${safe(part.manufacturer||"—")}</strong></div><div><span>Bin</span><strong>${safe(part.bin||"—")}</strong></div></div>
+    <div class="field"><label>Receive / Adjust On-Hand Quantity</label><input class="plain-input" id="adjustPartQty" type="number" min="0" value="${Number(part.quantity||0)}"></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-part-adjust">${icon("save")} Update Stock</button>`);
+  document.querySelector("#save-part-adjust")?.addEventListener("click",async()=>{
+    const qty=Number(document.querySelector("#adjustPartQty").value||0);
+    try{await updateRecord("parts",part.id,{quantity:qty});await writeAudit(state.user,"parts.stock_adjusted","part",part.id,{oldQuantity:Number(part.quantity||0),newQuantity:qty});closeModal();await refreshData();setFlash("Parts inventory updated.");}
+    catch(e){setFlash(e.message||"Unable to update stock.","error");}
+  });
+}
+
+async function fulfillPartRequest(request) {
+  const part=state.data.parts.find(p=>p.id===request.partId);
+  if(!part){setFlash("The requested part no longer exists in inventory.","error");return;}
+  const qty=Number(request.quantity||1),onHand=Number(part.quantity||0);
+  try{
+    if(onHand<qty){await updateRecord("partRequests",request.id,{status:"backordered"});await writeAudit(state.user,"parts.backordered","partRequest",request.id,{onHand,requested:qty});await refreshData();setFlash("Not enough stock. Request marked backordered.","error");return;}
+    await updateRecord("parts",part.id,{quantity:onHand-qty});
+    await updateRecord("partRequests",request.id,{status:"fulfilled",fulfilledBy:state.user.uid,fulfilledByName:state.profile?.displayName||state.user.email});
+    const ro=state.data.repairOrders.find(r=>r.id===request.repairOrderId);
+    if(ro){const added=Number(request.unitPrice||part.retailPrice||0)*qty,newParts=Number(ro.partsTotal||0)+added;await updateRecord("repairOrders",ro.id,{partsTotal:newParts,estimateTotal:Number(ro.laborTotal||0)+newParts,status:"repair_in_progress"});}
+    await writeAudit(state.user,"parts.fulfilled","partRequest",request.id,{partId:part.id,quantity:qty});
+    await refreshData();setFlash("Part request fulfilled and Repair Order updated.");
+  }catch(e){setFlash(e.message||"Unable to fulfill request.","error");}
+}
+
+function acquisitionSubmissionModal() {
+  modal("Sell Your Car to Sterling",`<form id="acquisition-form" class="form-grid">
+    ${formField("Seller Name","acqSellerName",state.profile?.displayName||state.user?.displayName||"","text","required")}
+    ${formField("Contact Email","acqEmail",state.user?.email||"","email","required")}
+    ${formField("Year","acqYear","2022","number","required min='1900'")}
+    ${formField("Make","acqMake","Toyota","text","required")}
+    ${formField("Model","acqModel","Camry","text","required")}
+    ${formField("Trim","acqTrim","XSE")}
+    ${formField("VIN","acqVin","17-character VIN","text","required maxlength='17'")}
+    ${formField("Mileage","acqMileage","45000","number","required min='0'")}
+    ${formField("Color","acqColor","Black")}
+    <div class="field"><label>Overall Condition</label><select class="plain-input" id="acqCondition"><option>Excellent</option><option>Good</option><option>Fair</option><option>Needs Work</option></select></div>
+    ${formField("Price You Have in Mind","acqRequested","0","number","min='0'")}
+    <div class="field full"><label>Vehicle Notes</label><textarea class="plain-input textarea" id="acqNotes" placeholder="Damage, modifications, warning lights, notable features..."></textarea></div>
+    <div class="field full check-field"><label><input type="checkbox" id="acqConfirm" required> I understand this is fictional roleplay data and I am not submitting real title, banking, or sensitive identity information.</label></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="submit-acquisition">${icon("send")} Submit Vehicle</button>`);
+  document.querySelector("#submit-acquisition")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#acquisition-form");if(!form.reportValidity())return;
+    const data={sellerUid:state.user.uid,sellerName:document.querySelector("#acqSellerName").value.trim(),sellerEmail:document.querySelector("#acqEmail").value.trim(),year:Number(document.querySelector("#acqYear").value),make:document.querySelector("#acqMake").value.trim(),model:document.querySelector("#acqModel").value.trim(),trim:document.querySelector("#acqTrim").value.trim(),vin:document.querySelector("#acqVin").value.trim(),mileage:Number(document.querySelector("#acqMileage").value||0),color:document.querySelector("#acqColor").value.trim(),condition:document.querySelector("#acqCondition").value,requestedPrice:Number(document.querySelector("#acqRequested").value||0),notes:document.querySelector("#acqNotes").value.trim(),offerAmount:0,status:"submitted"};
+    try{const res=await createVehicleAcquisition(data,state.user);if(state.profile?.isStaff)await writeAudit(state.user,"acquisition.submitted","vehicleAcquisition",res.id,{vehicle:`${data.year} ${data.make} ${data.model}`});closeModal();await refreshData();setFlash("Vehicle submitted to Sterling Acquisitions.");}
+    catch(e){setFlash(e.message||"Unable to submit vehicle.","error");}
+  });
+}
+
+function acquisitionDetailModal(a) {
+  if(!a)return;
+  modal("Vehicle Acquisition",`
+    <div class="record-hero"><div class="record-icon">${icon("car-front")}</div><div><span class="eyebrow">STERLING ACQUISITIONS</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${safe(a.sellerName||"Customer")} • ${Number(a.mileage||0).toLocaleString()} mi</p></div>${statusPill(a.status||"submitted")}</div>
+    <div class="record-grid"><div><span>VIN</span><strong>${safe(a.vin||"—")}</strong></div><div><span>Condition</span><strong>${safe(a.condition||"—")}</strong></div><div><span>Requested</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div><div><span>Sterling Offer</span><strong>${a.offerAmount?money(a.offerAmount):"Not offered"}</strong></div><div><span>Color</span><strong>${safe(a.color||"—")}</strong></div><div><span>Submitted</span><strong>${fmtDate(a.createdAt)}</strong></div></div>
+    ${a.notes?`<div class="manager-note"><span>SELLER NOTES</span><p>${safe(a.notes)}</p></div>`:""}
+    ${a.appraisalNotes?`<div class="manager-note"><span>APPRAISAL NOTES</span><p>${safe(a.appraisalNotes)}</p></div>`:""}
+    <div class="workflow-actions">
+      ${["submitted","appraising"].includes(a.status||"submitted") && (can("sales.manage")||can("inventory.manage"))?`<button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} Appraise & Make Offer</button>`:""}
+      ${a.status==="offer_made" && (can("sales.manage")||can("inventory.manage"))?`<button class="btn secondary" id="edit-acquisition-offer">${icon("pencil")} Edit Offer</button>`:""}
+      ${a.status==="accepted" && (can("inventory.manage")||can("admin.full"))?`<button class="btn primary" id="receive-acquisition">${icon("warehouse")} Receive into Inventory</button>`:""}
+    </div>
+  `);
+  document.querySelector("#make-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
+  document.querySelector("#edit-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
+  document.querySelector("#receive-acquisition")?.addEventListener("click",()=>receiveAcquisitionModal(a));
+}
+
+function acquisitionOfferModal(a) {
+  modal("Sterling Purchase Offer",`<form id="acq-offer-form" class="form-grid">
+    <div class="field full"><label>Vehicle</label><input class="plain-input" value="${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}" disabled></div>
+    ${formField("Sterling Offer","acqOffer",String(a.offerAmount||a.requestedPrice||0),"number","required min='0'")}
+    <div class="field"><label>Appraised Condition</label><select class="plain-input" id="acqAppraisedCondition"><option>Excellent</option><option>Good</option><option>Fair</option><option>Needs Reconditioning</option></select></div>
+    <div class="field full"><label>Appraisal Notes</label><textarea class="plain-input textarea" id="acqAppraisalNotes" required placeholder="Inspection findings and valuation notes...">${safe(a.appraisalNotes||"")}</textarea></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="send-acquisition-offer">${icon("send")} Send Offer</button>`);
+  document.querySelector("#send-acquisition-offer")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#acq-offer-form");if(!form.reportValidity())return;
+    const offer=Number(document.querySelector("#acqOffer").value||0);
+    try{await updateRecord("vehicleAcquisitions",a.id,{offerAmount:offer,appraisedCondition:document.querySelector("#acqAppraisedCondition").value,appraisalNotes:document.querySelector("#acqAppraisalNotes").value.trim(),status:"offer_made",appraisedBy:state.user.uid,appraisedByName:state.profile?.displayName||state.user.email});await writeAudit(state.user,"acquisition.offer_made","vehicleAcquisition",a.id,{offerAmount:offer});closeModal();await refreshData();setFlash("Sterling purchase offer sent.");}
+    catch(e){setFlash(e.message||"Unable to send offer.","error");}
+  });
+}
+
+function receiveAcquisitionModal(a) {
+  const stock=`ACQ-${String(Date.now()).slice(-6)}`;
+  modal("Receive Purchased Vehicle",`<form id="receive-acq-form" class="form-grid">
+    ${formField("Stock Number","acqStock",stock,"text","required")}
+    ${formField("Retail Price","acqRetail",String(Math.round(Number(a.offerAmount||0)*1.15)),"number","required min='0'")}
+    <div class="field"><label>Initial Status</label><select class="plain-input" id="acqInitialStatus"><option value="reconditioning">Reconditioning</option><option value="hold">Hold</option><option value="available">Available</option></select></div>
+    <div class="field"><label>Inventory Location</label><select class="plain-input" id="acqLocation"><option>Used Vehicle Lot</option><option>Trade-In Inspection</option><option>Detail / Recon</option><option>Holding Area</option></select></div>
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="receive-acq-confirm">${icon("warehouse")} Receive Vehicle</button>`);
+  const stockInput=document.querySelector("#acqStock");if(stockInput&&!stockInput.value)stockInput.value=stock;
+  document.querySelector("#receive-acq-confirm")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#receive-acq-form");if(!form.reportValidity())return;
+    try{const vehicle=await createVehicle({year:a.year,make:a.make,model:a.model,trim:a.trim||"",vin:a.vin,mileage:a.mileage,color:a.color||"",stockNumber:document.querySelector("#acqStock").value.trim()||stock,price:Number(document.querySelector("#acqRetail").value||0),msrp:Number(document.querySelector("#acqRetail").value||0),status:document.querySelector("#acqInitialStatus").value,location:document.querySelector("#acqLocation").value,sourceAcquisitionId:a.id,acquisitionCost:Number(a.offerAmount||0)},state.user);await updateRecord("vehicleAcquisitions",a.id,{status:"received",inventoryVehicleId:vehicle.id,receivedBy:state.user.uid});await writeAudit(state.user,"acquisition.received","vehicleAcquisition",a.id,{vehicleId:vehicle.id,offerAmount:a.offerAmount});closeModal();await refreshData();setFlash("Vehicle received into Sterling inventory.");}
+    catch(e){setFlash(e.message||"Unable to receive vehicle.","error");}
+  });
+}
+
 function futureModule(type) {
   const copy = {
-    service:["wrench","DRIVE Service","Repair orders, technician assignment, approvals, inspections, and permanent vehicle service history will live here."],
-    parts:["package-search","DRIVE Parts","Parts inventory, technician requests, ordering, bin locations, and backorders will be managed here."],
     audit:["shield-check","Audit & Security","Immutable management activity, approvals, pricing changes, and sensitive actions will be visible here."]
   }[type];
   return `${pageHeader("STERLING DRIVE", copy[1], copy[2])}<div class="panel">${emptyState(copy[0], copy[1] + " foundation ready", "This module is reserved in the Phase One shell and will plug into the same identity, permissions, and data architecture.")}</div>`;
@@ -672,8 +1058,9 @@ function currentPage() {
     case "queue": return queuePage();
     case "staff": return staffPage();
     case "finance": return financePage();
-    case "service":
-    case "parts":
+    case "service": return servicePage();
+    case "parts": return partsPage();
+    case "acquisitions": return acquisitionsPage();
     case "audit": return futureModule(state.page);
     default: return dashboard();
   }
