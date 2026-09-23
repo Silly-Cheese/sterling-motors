@@ -1218,6 +1218,7 @@ function acquisitionDetailModal(a) {
     ${a.appraisalNotes?`<div class="manager-note"><span>APPRAISAL NOTES</span><p>${safe(a.appraisalNotes)}</p></div>`:""}
     ${a.offerNote?`<div class="manager-note"><span>OFFER NOTE TO SELLER</span><p>${safe(a.offerNote)}</p></div>`:""}
     ${a.customerResponseNote?`<div class="customer-response-note"><span>CUSTOMER RESPONSE</span><p>${safe(a.customerResponseNote)}</p></div>`:""}
+    ${a.acceptanceMethod==="staff_assisted"?`<div class="staff-assisted-record">${icon("user-check")}<div><strong>Staff-assisted acceptance</strong><span>${safe(a.acceptedByStaffName||"Sterling Staff")} accepted the offer for the seller${a.customerResponseNote?` • ${safe(a.customerResponseNote)}`:""}.</span></div></div>`:""}
 
     ${!canManage ? `<div class="acquisition-access-note">${icon("lock-keyhole")}<div><strong>View-only</strong><span>Your account needs Vehicle Acquisitions permission to review or offer on this vehicle.</span></div></div>` : ""}
 
