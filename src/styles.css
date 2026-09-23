@@ -293,3 +293,20 @@ tbody tr{transition:background .12s}tbody tr:hover{background:rgba(255,255,255,.
 .status-wholesale{color:#aeb5bc;border-color:#343b42;background:#15191e}.status-wholesale span{background:#7d8791}
 @media(max-width:1180px){.trade-review-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.trade-review-grid{grid-template-columns:1fr}.trade-review-summary{justify-content:flex-start}}
+
+
+/* Manager trade approval */
+.trade-desk-card{border:1px solid #333027;background:linear-gradient(145deg,#19160f,#111519);border-radius:12px;padding:12px;margin:12px 0}
+.trade-desk-card.manager-reviewing{border-color:#665233;box-shadow:inset 0 0 0 1px rgba(208,178,112,.06)}
+.trade-desk-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.trade-desk-head h3{font-size:13px;margin:4px 0 2px}.trade-desk-head p{font-size:8px;color:#706b60;margin:0}
+.trade-value-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-top:11px}
+.trade-value-grid>div{border:1px solid #2b3034;background:#0f1317;border-radius:9px;padding:9px}
+.trade-value-grid span,.trade-value-grid strong{display:block}.trade-value-grid span{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#68727c}.trade-value-grid strong{font-size:12px;margin-top:4px}
+.positive-value{color:#8fd4ad!important}.negative-value{color:#dfaa82!important}
+.trade-manager-warning{display:flex;gap:7px;align-items:center;border-top:1px solid #2c2922;margin-top:10px;padding-top:9px;color:#aa9365;font-size:8px}.trade-manager-warning svg{width:13px}
+.counter-package-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;border-bottom:1px solid #252b32;padding-bottom:13px;margin-bottom:13px}.counter-package-head h3{font-size:15px;margin:4px 0 2px}.counter-package-head p{font-size:9px;color:#6f7983;margin:0}
+.calculated-field{min-height:42px;border:1px solid #2c333b;background:#0d1115;border-radius:10px;padding:0 11px;display:flex;align-items:center}.calculated-field strong{font-size:10px}
+.status-not-submitted,.status-pending{color:#d7bd7f;border-color:#4b4027;background:#211c10}.status-not-submitted span,.status-pending span{background:#d8b45f}
+.status-countered{color:#c2b0e2;border-color:#413653;background:#191421}.status-countered span{background:#a98ad2}
+@media(max-width:700px){.trade-value-grid{grid-template-columns:1fr 1fr}.trade-desk-head{flex-direction:column}}
