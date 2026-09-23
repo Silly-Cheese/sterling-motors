@@ -395,3 +395,87 @@ export async function receiveTradeInVehicle(trade, deal, actor) {
   await batch.commit();
   return { id: vehicleId };
 }
+
+
+export async function startAcquisitionReview(id, actor) {
+  return updateDoc(doc(db, "vehicleAcquisitions", id), {
+    status: "under_review",
+    reviewStartedBy: actor.uid,
+    reviewStartedByName: actor.displayName || actor.email || "Sterling Staff",
+    reviewStartedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function sendAcquisitionOffer(id, data, actor) {
+  return updateDoc(doc(db, "vehicleAcquisitions", id), {
+    offerAmount: Number(data.offerAmount || 0),
+    appraisedCondition: data.appraisedCondition || "",
+    appraisalNotes: data.appraisalNotes || "",
+    offerNote: data.offerNote || "",
+    status: "offer_made",
+    customerResponse: "",
+    customerResponseNote: "",
+    offeredBy: actor.uid,
+    offeredByName: actor.displayName || actor.email || "Sterling Staff",
+    offeredAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function respondToAcquisitionOffer(id, response, note = "") {
+  const statusMap = {
+    accept: "accepted",
+    decline: "declined",
+    review: "review_requested"
+  };
+  const status = statusMap[response];
+  if (!status) throw new Error("Invalid acquisition response.");
+  return updateDoc(doc(db, "vehicleAcquisitions", id), {
+    status,
+    customerResponse: response,
+    customerResponseNote: note || "",
+    respondedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function receiveAcquisitionVehicle(acquisition, data, actor) {
+  if (!acquisition?.id) throw new Error("Acquisition record is missing.");
+  const vehicleId = acquisition.inventoryVehicleId || `acquisition-${acquisition.id}`;
+  const vehicleRef = doc(db, "vehicles", vehicleId);
+  const acquisitionRef = doc(db, "vehicleAcquisitions", acquisition.id);
+  const batch = writeBatch(db);
+
+  batch.set(vehicleRef, {
+    year: acquisition.year,
+    make: acquisition.make,
+    model: acquisition.model,
+    trim: acquisition.trim || "",
+    vin: acquisition.vin,
+    mileage: Number(acquisition.mileage || 0),
+    color: acquisition.color || "",
+    stockNumber: data.stockNumber,
+    price: Number(data.price || 0),
+    msrp: Number(data.msrp || data.price || 0),
+    status: data.status || "reconditioning",
+    location: data.location || "Used Vehicle Intake",
+    sourceAcquisitionId: acquisition.id,
+    acquisitionCost: Number(acquisition.offerAmount || 0),
+    createdBy: actor.uid,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp()
+  }, { merge: true });
+
+  batch.set(acquisitionRef, {
+    status: "received",
+    inventoryVehicleId: vehicleId,
+    receivedBy: actor.uid,
+    receivedByName: actor.displayName || actor.email || "Sterling Staff",
+    receivedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  await batch.commit();
+  return { id: vehicleId };
+}
