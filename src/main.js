@@ -356,7 +356,7 @@ function vehicleRow(v) {
     <td>${Number(v.mileage || 0).toLocaleString()} mi</td>
     <td><strong>${money(v.price)}</strong><small class="block">MSRP ${money(v.msrp || v.price)}</small></td>
     <td><div class="row-actions">
-      ${v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")) ? `<button class="btn primary small" data-push-floor="${v.id}">${icon("store")} Push to Floor</button>` : ""}
+      ${v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")||can("acquisitions.manage")) ? `<button class="btn primary small" data-push-floor="${v.id}">${icon("store")} Push to Floor</button>` : ""}
       <button class="icon-btn" data-vehicle="${v.id}" title="Open vehicle record">${icon("arrow-up-right")}</button>
     </div></td>
   </tr>`;
@@ -693,6 +693,8 @@ function servicePage() {
   const ready=ros.filter(r=>(r.status||"").toLowerCase()==="ready_for_pickup").length;
   const tradeReviews=state.data.tradeIns.filter(t=>["received","service_review_required","service_review","reconditioning"].includes(t.status||""));
   const tradeReady=state.data.tradeIns.filter(t=>(t.status||"")==="service_approved").length;
+  const acquisitionReviews=state.data.vehicles.filter(v=>v.sourceAcquisitionId && ["service_review","reconditioning"].includes(v.status||""));
+  const acquisitionReady=state.data.vehicles.filter(v=>v.sourceAcquisitionId && (v.status||"")==="retail_ready").length;
   const today=new Date().toISOString().slice(0,10);
   const todayAppointments=appointments.filter(a=>a.date===today && !["complete","cancelled"].includes((a.status||"").toLowerCase())).length;
 
@@ -723,6 +725,25 @@ function servicePage() {
           </article>`;
         }).join("")}
       </div>` : `<div class="trade-review-empty">${icon("circle-check-big")}<div><strong>No trade-ins waiting on Service</strong><span>Received trade-ins will appear here before they can reach the sales floor.</span></div></div>`}
+    </div>
+
+    <div class="trade-review-panel panel">
+      <div class="panel-head">
+        <div><span class="eyebrow">ACQUIRED VEHICLE RECONDITIONING</span><h2>Purchased Vehicle Retail Review</h2></div>
+        <div class="trade-review-summary"><span>${acquisitionReviews.length} awaiting Service</span><span>${acquisitionReady} retail-ready</span></div>
+      </div>
+      ${acquisitionReviews.length ? `<div class="trade-review-grid">
+        ${acquisitionReviews.map(v=>{
+          const acquisition=state.data.vehicleAcquisitions.find(a=>a.id===v.sourceAcquisitionId);
+          return `<article class="trade-review-card acquisition-review-card">
+            <div class="trade-review-card-top"><span class="record-list-icon">${icon("badge-dollar-sign")}</span>${statusPill(v.status||"service_review")}</div>
+            <h3>${safe(v.year||"")} ${safe(v.make||"")} ${safe(v.model||"")}</h3>
+            <p>${Number(v.mileage||0).toLocaleString()} mi • Purchased ${money(v.acquisitionCost||acquisition?.offerAmount||0)}</p>
+            <small>${safe(v.stockNumber||"Stock pending")} • ${safe(v.location||"Service Intake")}</small>
+            ${can("service.manage") ? `<button class="btn primary small" data-acquisition-service-review="${v.id}">${icon("clipboard-check")} Review Acquired Vehicle</button>` : ""}
+          </article>`;
+        }).join("")}
+      </div>` : `<div class="trade-review-empty">${icon("circle-check-big")}<div><strong>No acquired vehicles waiting on Service</strong><span>Vehicles purchased through Sell Your Car will appear here whenever intake is marked Service Review.</span></div></div>`}
     </div>
 
     <div class="service-layout">
@@ -1437,15 +1458,25 @@ function receiveAcquisitionModal(a) {
     const form=document.querySelector("#receive-acq-form");if(!form.reportValidity())return;
     const btn=document.querySelector("#receive-acq-confirm");btn.disabled=true;
     try{
+      const initialStatus=document.querySelector("#acqInitialStatus").value;
       const vehicle=await receiveAcquisitionVehicle(a,{
         stockNumber:document.querySelector("#acqStock").value.trim()||stock,
         price:Number(document.querySelector("#acqRetail").value||0),
         msrp:Number(document.querySelector("#acqRetail").value||0),
-        status:document.querySelector("#acqInitialStatus").value,
-        location:document.querySelector("#acqLocation").value
+        status:initialStatus,
+        location:initialStatus==="service_review" ? "Service Intake / Retail Inspection" : document.querySelector("#acqLocation").value
       },state.user);
-      await writeAudit(state.user,"acquisition.received","vehicleAcquisition",a.id,{vehicleId:vehicle.id,offerAmount:a.offerAmount});
-      closeModal();await refreshData();setFlash("Accepted vehicle received into Sterling inventory.");
+      if(initialStatus==="service_review"){
+        await createNotification({
+          type:"service",
+          title:"Acquired vehicle needs Service review",
+          message:`${a.year} ${a.make} ${a.model} was purchased by Sterling and is waiting for retail inspection.`,
+          acquisitionId:a.id,
+          vehicleId:vehicle.id
+        },state.user);
+      }
+      await writeAudit(state.user,"acquisition.received","vehicleAcquisition",a.id,{vehicleId:vehicle.id,offerAmount:a.offerAmount,initialStatus});
+      closeModal();await refreshData();setFlash(initialStatus==="service_review" ? "Vehicle received and sent to DRIVE Service for retail review." : "Accepted vehicle received into Sterling inventory.");
     }catch(e){btn.disabled=false;setFlash(e.message||"Unable to receive vehicle.","error");}
   });
 }
@@ -1964,8 +1995,8 @@ function vehicleDetailModal(v) {
       <div><span>MSRP</span><strong>${money(v.msrp || v.price)}</strong></div>
     </div>
     <div class="scan-record"><span>${icon("qr-code")}</span><div><small>STERLING SCAN ID</small><code>${safe(scanCode)}</code></div><button class="btn secondary small" id="copy-scan">Copy</button></div>
-    ${v.sourceTradeId ? `<div class="trade-origin-note">${icon("refresh-cw")}<div><strong>Trade-In Vehicle</strong><span>${v.status==="available" ? "Service-approved and on the sales floor." : v.status==="retail_ready" ? "Service approved — waiting to be pushed to the sales floor." : "Retail sale locked until Service completes its review."}</span></div></div>` : ""}
-    ${v.sourceTradeId && v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")) ? `<div class="workflow-actions"><button class="btn primary" id="push-sales-floor">${icon("store")} Push to Sales Floor</button></div>` : ""}
+    ${(v.sourceTradeId||v.sourceAcquisitionId) ? `<div class="trade-origin-note">${icon(v.sourceTradeId?"refresh-cw":"badge-dollar-sign")}<div><strong>${v.sourceTradeId?"Trade-In Vehicle":"Sterling-Purchased Vehicle"}</strong><span>${v.status==="available" ? "Service-approved and on the sales floor." : v.status==="retail_ready" ? "Service approved — waiting to be pushed to the sales floor." : "Retail sale locked until Service completes its review."}</span></div></div>` : ""}
+    ${(v.sourceTradeId||v.sourceAcquisitionId) && v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")||can("acquisitions.manage")) ? `<div class="workflow-actions"><button class="btn primary" id="push-sales-floor">${icon("store")} Push to Sales Floor</button></div>` : ""}
     ${activeDrive ? `<div class="alert-card">${icon("navigation")} <div><strong>Vehicle is currently on a test drive</strong><span>${safe(activeDrive.customerName || "Customer")} • ${safe(activeDrive.startedByName || "Sterling Staff")}</span></div>${can("sales.manage") ? `<button class="btn primary small" data-return-drive="${activeDrive.id}">Return Vehicle</button>` : ""}</div>` : ""}
   `);
   document.querySelector("#copy-scan")?.addEventListener("click", async () => {
