@@ -383,3 +383,5 @@ tbody tr{transition:background .12s}tbody tr:hover{background:rgba(255,255,255,.
 .status-voided{color:#df9696;border-color:#563232;background:#241414}.status-voided span{background:#d77777}
 @media(max-width:900px){.finance-customer-kpis,.finance-preferences-grid{grid-template-columns:1fr 1fr}.finance-customer-sections{grid-template-columns:1fr}.compact-search{min-width:220px}}
 @media(max-width:620px){.finance-directory-tools{width:100%}.compact-search{min-width:0;width:100%}.finance-customer-hero{grid-template-columns:auto 1fr}.finance-customer-hero>.status{grid-column:1/-1;width:max-content}.finance-customer-kpis,.finance-preferences-grid{grid-template-columns:1fr 1fr}}
+
+.modal-card:has(.finance-customer-hero){width:min(1020px,100%)}
