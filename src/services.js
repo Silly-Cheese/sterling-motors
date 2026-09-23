@@ -67,7 +67,7 @@ export async function createVehicle(data, actor) {
     mileage: Number(data.mileage || 0),
     price: Number(data.price || 0),
     msrp: Number(data.msrp || data.price || 0),
-    status: "available",
+    status: data.status || "available",
     createdBy: actor.uid,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
