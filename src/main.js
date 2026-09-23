@@ -33,7 +33,8 @@ import {
   createPart,
   createPartRequest,
   createVehicleAcquisition,
-  listVehicleAcquisitionsForUser
+  listVehicleAcquisitionsForUser,
+  checkoutQueueEntry
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -392,7 +393,7 @@ function customers() {
       ${customers.length ? customers.map(c => `<article class="customer-card" data-search="${safe([c.name,c.email,c.phone,c.customerNumber].join(" ").toLowerCase())}">
         <div class="customer-top"><span class="avatar lg">${initials(c.name)}</span><div><h3>${safe(c.name || "Customer")}</h3><span>${safe(c.customerNumber || c.id.slice(0,8).toUpperCase())}</span></div>${statusPill(c.status || "active")}</div>
         <div class="customer-meta"><span>${icon("mail")} ${safe(c.email || "No email")}</span><span>${icon("phone")} ${safe(c.phone || "No phone")}</span></div>
-        <div class="customer-footer"><small>Customer since ${fmtDate(c.createdAt)}</small><button class="text-btn">Open profile ${icon("arrow-up-right")}</button></div>
+        <div class="customer-footer"><small>Customer since ${fmtDate(c.createdAt)}</small><button class="text-btn" data-customer="${c.id}">Open profile ${icon("arrow-up-right")}</button></div>
       </article>`).join("") : emptyState("users", "No customer profiles yet", "Create a customer profile to begin their Sterling history.", can("sales.manage") ? `<button class="btn primary" data-action="new-customer">Create Customer</button>` : "")}
     </div>
   `;
@@ -400,20 +401,35 @@ function customers() {
 
 function queuePage() {
   const queue = state.data.queue;
+  const canWorkQueue = can("queue.manage") || can("sales.manage") || can("service.manage");
+  const labels = { waiting:"Waiting", claimed:"Claimed", "with staff":"With Staff", complete:"Checked Out" };
+  const findCustomer = q => state.data.customers.find(c =>
+    (q.customerId && c.id === q.customerId) ||
+    (!q.customerId && c.name && q.customerName && c.name.trim().toLowerCase() === q.customerName.trim().toLowerCase())
+  );
+
   return `
-    ${pageHeader("FRONT OF HOUSE", "Reception Queue", "Check customers in, route visits, and keep the showroom moving.",
-      can("queue.manage") || can("sales.manage") ? `<button class="btn primary" data-action="new-queue">${icon("plus")} Check In Guest</button>` : "")}
+    ${pageHeader("FRONT OF HOUSE", "Reception Queue", "Check customers in, open their customer record, and check them out when their visit is finished.",
+      canWorkQueue ? `<button class="btn primary" data-action="new-queue">${icon("plus")} Check In Customer</button>` : "")}
     <div class="queue-board">
       ${["waiting","claimed","with staff","complete"].map(status => {
         const items = queue.filter(q => (q.status || "waiting").replaceAll("_"," ").toLowerCase() === status);
-        return `<section class="queue-column"><div class="queue-column-head"><span>${status}</span><b>${items.length}</b></div>
-          <div class="queue-stack">${items.length ? items.map(q => `<article class="queue-ticket-card">
-            <div><span class="queue-ticket">${safe(q.ticket || "GUEST")}</span>${statusPill(q.status || "waiting")}</div>
-            <h3>${safe(q.customerName || "Guest")}</h3>
-            <p>${safe(q.reason || "Dealership visit")}</p>
-            <small>${fmtDate(q.createdAt)}</small>
-            ${status === "waiting" && can("queue.manage") ? `<button class="btn secondary small" data-claim="${q.id}">Claim Customer</button>` : ""}
-          </article>`).join("") : `<div class="column-empty">No customers</div>`}</div>
+        return `<section class="queue-column"><div class="queue-column-head"><span>${labels[status]}</span><b>${items.length}</b></div>
+          <div class="queue-stack">${items.length ? items.map(q => {
+            const customer = findCustomer(q);
+            return `<article class="queue-ticket-card ${status==="complete"?"checked-out-card":""}">
+              <div><span class="queue-ticket">${safe(q.ticket || "GUEST")}</span>${statusPill(q.status || "waiting")}</div>
+              <h3>${safe(q.customerName || "Guest")}</h3>
+              <p>${safe(q.reason || "Dealership visit")}</p>
+              <small>${status==="complete" ? `Checked out ${fmtDate(q.checkedOutAt || q.updatedAt)}${q.checkedOutByName ? " • "+safe(q.checkedOutByName) : ""}` : `Checked in ${fmtDate(q.createdAt)}`}</small>
+              ${q.checkoutOutcome ? `<div class="queue-outcome">${icon("circle-check")} ${safe(q.checkoutOutcome)}</div>` : ""}
+              <div class="queue-card-actions">
+                ${customer ? `<button class="btn secondary small" data-customer="${customer.id}">${icon("user-round-search")} Customer Info</button>` : ""}
+                ${status === "waiting" && canWorkQueue ? `<button class="btn secondary small" data-claim="${q.id}">${icon("hand")} Claim</button>` : ""}
+                ${status !== "complete" && canWorkQueue ? `<button class="btn checkout-btn small" data-checkout="${q.id}">${icon("log-out")} Check Out</button>` : ""}
+              </div>
+            </article>`;
+          }).join("") : `<div class="column-empty">No customers</div>`}</div>
         </section>`;
       }).join("")}
     </div>
@@ -1295,21 +1311,41 @@ function dealModal() {
 }
 
 function queueModal() {
-  modal("Check In Guest", `<form id="queue-form" class="form-grid">
-    ${formField("Guest Name","guestName","Taylor Morgan","text","required")}
+  const customers = state.data.customers;
+  modal("Check In Customer", `<form id="queue-form" class="form-grid">
+    <div class="field full"><label>Existing Customer <span class="optional-label">Optional</span></label><select class="plain-input" id="queueCustomer">
+      <option value="">Walk-in / not yet in CRM</option>
+      ${customers.map(c => `<option value="${c.id}" data-name="${safe(c.name||"Customer")}" data-email="${safe(c.email||"")}" data-phone="${safe(c.phone||"")}">${safe(c.name||c.email||c.id)}${c.customerNumber?" • "+safe(c.customerNumber):""}</option>`).join("")}
+    </select></div>
+    ${formField("Customer / Guest Name","guestName","Taylor Morgan","text","required")}
     ${formField("Ticket","ticket","A001")}
     <div class="field full"><label>Reason for visit</label><select class="plain-input" id="reason">
-      <option>Vehicle Purchase</option><option>Browsing</option><option>Trade-In</option><option>Service</option><option>Parts</option><option>Finance</option><option>Appointment</option><option>Vehicle Pickup</option>
+      <option>Vehicle Purchase</option><option>Browsing</option><option>Sell My Vehicle</option><option>Trade-In</option><option>Service</option><option>Parts</option><option>Finance</option><option>Appointment</option><option>Vehicle Pickup</option>
     </select></div>
   </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-queue">${icon("concierge-bell")} Check In</button>`);
+
+  const customerSelect=document.querySelector("#queueCustomer");
+  customerSelect?.addEventListener("change",()=>{
+    const option=customerSelect.selectedOptions[0];
+    if(customerSelect.value && option?.dataset.name) document.querySelector("#guestName").value=option.dataset.name;
+  });
+
   document.querySelector("#save-queue").addEventListener("click", async () => {
     const form = document.querySelector("#queue-form"); if (!form.reportValidity()) return;
-    const data = { customerName:document.querySelector("#guestName").value,ticket:document.querySelector("#ticket").value,reason:document.querySelector("#reason").value };
+    const option=customerSelect.selectedOptions[0];
+    const data = {
+      customerId:customerSelect.value || "",
+      customerName:document.querySelector("#guestName").value.trim(),
+      customerEmail:customerSelect.value ? (option.dataset.email||"") : "",
+      customerPhone:customerSelect.value ? (option.dataset.phone||"") : "",
+      ticket:document.querySelector("#ticket").value.trim(),
+      reason:document.querySelector("#reason").value
+    };
     try {
       const result = await createQueueEntry(data, state.user);
-      await writeAudit(state.user, "queue.created", "queue", result.id, data);
-      closeModal(); await refreshData(); setFlash("Guest checked into reception.");
-    } catch (e) { setFlash(e.message || "Unable to check in guest.", "error"); }
+      await writeAudit(state.user, "queue.created", "queue", result.id, {customerId:data.customerId,customerName:data.customerName,reason:data.reason});
+      closeModal(); await refreshData(); setFlash("${safe(data.customerName)} checked into reception.");
+    } catch (e) { setFlash(e.message || "Unable to check in customer.", "error"); }
   });
 }
 
