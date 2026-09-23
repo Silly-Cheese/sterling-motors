@@ -2044,6 +2044,15 @@ function bindApp() {
   }));
   document.querySelectorAll("[data-deal]").forEach(row => row.addEventListener("click", () => dealDetailModal(state.data.deals.find(d => d.id === row.dataset.deal))));
   document.querySelectorAll("[data-staff]").forEach(btn => btn.addEventListener("click", () => staffAccessModal(state.data.users.find(u => u.id === btn.dataset.staff))));
+  document.querySelectorAll("[data-customer]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    customerDetailModal(state.data.customers.find(c => c.id === btn.dataset.customer));
+  }));
+  document.querySelectorAll("[data-checkout]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const entry=state.data.queue.find(q=>q.id===btn.dataset.checkout);
+    if(entry) checkoutCustomerModal(entry,resolveQueueCustomer(entry));
+  }));
   document.querySelectorAll("[data-finance-deal]").forEach(btn => btn.addEventListener("click", () => {
     const d=state.data.deals.find(x=>x.id===btn.dataset.financeDeal);
     if(!d) return;
