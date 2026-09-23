@@ -348,7 +348,10 @@ function vehicleRow(v) {
     <td>${statusPill(v.status || "available")}</td>
     <td>${Number(v.mileage || 0).toLocaleString()} mi</td>
     <td><strong>${money(v.price)}</strong><small class="block">MSRP ${money(v.msrp || v.price)}</small></td>
-    <td><button class="icon-btn" data-vehicle="${v.id}" title="Open vehicle record">${icon("arrow-up-right")}</button></td>
+    <td><div class="row-actions">
+      ${v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")) ? `<button class="btn primary small" data-push-floor="${v.id}">${icon("store")} Push to Floor</button>` : ""}
+      <button class="icon-btn" data-vehicle="${v.id}" title="Open vehicle record">${icon("arrow-up-right")}</button>
+    </div></td>
   </tr>`;
 }
 
@@ -688,7 +691,7 @@ function servicePage() {
   const open=ros.filter(r=>!["closed","cancelled"].includes((r.status||"").toLowerCase()));
   const awaiting=ros.filter(r=>(r.status||"").toLowerCase()==="awaiting_customer_authorization").length;
   const ready=ros.filter(r=>(r.status||"").toLowerCase()==="ready_for_pickup").length;
-  const tradeReviews=state.data.tradeIns.filter(t=>["service_review_required","service_review","reconditioning"].includes(t.status||""));
+  const tradeReviews=state.data.tradeIns.filter(t=>["received","service_review_required","service_review","reconditioning"].includes(t.status||""));
   const tradeReady=state.data.tradeIns.filter(t=>(t.status||"")==="service_approved").length;
   const today=new Date().toISOString().slice(0,10);
   const todayAppointments=appointments.filter(a=>a.date===today && !["complete","cancelled"].includes((a.status||"").toLowerCase())).length;
@@ -2181,6 +2184,10 @@ function bindApp() {
   document.querySelectorAll("[data-vehicle]").forEach(btn => btn.addEventListener("click", (e) => {
     e.stopPropagation();
     vehicleDetailModal(state.data.vehicles.find(v => v.id === btn.dataset.vehicle));
+  }));
+  document.querySelectorAll("[data-push-floor]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    pushTradeToSalesFloorModal(state.data.vehicles.find(v => v.id === btn.dataset.pushFloor));
   }));
   document.querySelectorAll("[data-deal]").forEach(row => row.addEventListener("click", () => dealDetailModal(state.data.deals.find(d => d.id === row.dataset.deal))));
   document.querySelectorAll("[data-staff]").forEach(btn => btn.addEventListener("click", () => staffAccessModal(state.data.users.find(u => u.id === btn.dataset.staff))));
