@@ -1382,7 +1382,7 @@ function financeWorksheetModal(d, preset = null) {
       <div class="payment-total"><span>Estimated Payment</span><strong id="sumPayment">$0/mo</strong></div>
     </div>
     <div class="rp-disclaimer compact">${icon("shield-check")} RP-only finance calculator. Never enter real credit or banking information.</div>
-  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance">${icon("file-check-2")} Finalize Finance Package</button>`);
+  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn secondary" id="save-finance-draft">${icon("save")} Save Draft</button><button class="btn primary" id="save-finance">${icon("file-check-2")} Finalize & Send to Delivery</button>`);
 
   const calculate=()=>{
     const productTotal=[...document.querySelectorAll("[data-finance-product]:checked")].reduce((s,x)=>s+Number(x.dataset.price||0),0);
@@ -1407,6 +1407,28 @@ function financeWorksheetModal(d, preset = null) {
     calculate();
   }));
   calculate();
+
+  document.querySelector("#save-finance-draft")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#finance-form"); if(!form.reportValidity()) return;
+    const button=document.querySelector("#save-finance-draft");button.disabled=true;
+    const x=calculate();
+    const productsSelected=[...document.querySelectorAll("[data-finance-product]:checked")].map(el=>el.dataset.financeProduct);
+    const data={
+      dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
+      salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
+      amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"draft",
+      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
+      lastEditedBy:state.user.uid,lastEditedByName:state.profile?.displayName||state.user.email
+    };
+    try{
+      let financeId=existing?.id;
+      if(existing) await updateRecord("financeApplications",existing.id,data);
+      else {const res=await createFinanceApplication(data,state.user);financeId=res.id;}
+      await updateRecord("deals",d.id,{financeApplicationId:financeId,financeStatus:"draft"});
+      await writeAudit(state.user,"finance.draft_saved","financeApplication",financeId,{dealId:d.id,amountFinanced:x.principal,termMonths:x.term,apr:x.apr});
+      closeModal();await refreshData();setFlash("Finance package saved as a draft.");
+    }catch(e){button.disabled=false;setFlash(e.message || "Unable to save Finance draft.","error");}
+  });
 
   document.querySelector("#save-finance")?.addEventListener("click",async()=>{
     const form=document.querySelector("#finance-form"); if(!form.reportValidity()) return;
@@ -3561,6 +3583,7 @@ function bindApp() {
     const client=financeClientDirectory().find(c=>c.customerId===deal.customerId || (!deal.customerId && String(c.name||"").toLowerCase()===String(deal.customerName||"").toLowerCase()));
     if(client) financeCustomerDetailModal(client);
   }));
+  document.querySelector("#open-payment-lab")?.addEventListener("click",financePaymentLabPickerModal);
   document.querySelector("#finance-customer-search")?.addEventListener("input",e=>{
     const term=e.currentTarget.value.toLowerCase().trim();
     document.querySelectorAll("#finance-customer-rows tr").forEach(row=>row.style.display=(row.dataset.search||"").includes(term)?"":"none");
