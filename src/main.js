@@ -1526,7 +1526,7 @@ function checkoutCustomerModal(queueEntry, customer=null) {
     }catch(e){setFlash(e.message||"Unable to check out customer.","error");}
   });
 }
-ion notificationCenter() {
+function notificationCenter() {
   const items = [...state.data.notifications].sort((a,b) => {
     const av = a.createdAt?.seconds || 0, bv = b.createdAt?.seconds || 0;
     return bv - av;
