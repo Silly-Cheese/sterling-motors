@@ -101,7 +101,12 @@ service cloud.firestore {
 
     match /repairOrders/{id} {
       allow read: if activeStaff();
-      allow create, update: if permitted('service.manage') || permitted('admin.full');
+      allow create: if permitted('service.manage') || permitted('admin.full');
+      allow update: if
+        permitted('service.manage') ||
+        permitted('admin.full') ||
+        (permitted('parts.manage') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['partsTotal', 'estimateTotal', 'status', 'updatedAt']));
       allow delete: if permitted('admin.full');
     }
 
