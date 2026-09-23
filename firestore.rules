@@ -1,0 +1,62 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function currentUser() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function activeStaff() {
+      return signedIn() && currentUser().isStaff == true && currentUser().status == 'active';
+    }
+
+    function permitted(permission) {
+      return activeStaff() && (currentUser().permissions.hasAny(['*']) || currentUser().permissions.hasAny([permission]));
+    }
+
+    match /users/{uid} {
+      allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'customer' && request.resource.data.isStaff == false && request.resource.data.permissions.size() == 0;
+      allow read: if signedIn() && (request.auth.uid == uid || activeStaff());
+      allow update: if signedIn() && (permitted('staff.manage') || permitted('admin.full') || (request.auth.uid == uid && request.resource.data.role == resource.data.role && request.resource.data.isStaff == resource.data.isStaff && request.resource.data.permissions == resource.data.permissions && request.resource.data.status == resource.data.status));
+      allow delete: if permitted('admin.full');
+    }
+
+    match /customers/{id} {
+      allow read: if activeStaff() || (signedIn() && resource.data.linkedUid == request.auth.uid);
+      allow create, update: if permitted('customers.manage') || permitted('sales.manage');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /vehicles/{id} {
+      allow read: if signedIn();
+      allow create, update: if permitted('inventory.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /deals/{id} {
+      allow read: if activeStaff() || (signedIn() && resource.data.customerUid == request.auth.uid);
+      allow create, update: if permitted('deals.manage') || permitted('sales.manage');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /queue/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('queue.manage') || permitted('sales.manage') || permitted('service.manage');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /auditLogs/{id} {
+      allow create: if activeStaff();
+      allow read: if permitted('audit.view') || permitted('admin.full');
+      allow update, delete: if false;
+    }
+
+    match /system/{id} {
+      allow read, write: if permitted('admin.full');
+    }
+  }
+}
