@@ -1120,9 +1120,10 @@ function editFinanceApplicationModal(application) {
     ["tire_wheel","Tire & Wheel Protection",895]
   ];
   const selected=new Set(application.products||[]);
+  const revisionHistory=Array.isArray(application.revisionHistory)?application.revisionHistory:[];
 
   modal("Edit Finance Package",`
-    <div class="finance-hero"><div><span class="eyebrow">FINANCE PACKAGE • ${safe(application.dealNumber||"")}</span><h3>${safe(application.customerName||"Customer")}</h3><p>${safe(application.vehicleName||"Vehicle")}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
+    <div class="finance-hero"><div><span class="eyebrow">FINANCE PACKAGE • ${safe(application.dealNumber||"")}</span><h3>${safe(application.customerName||"Customer")}</h3><p>${safe(application.vehicleName||"Vehicle")} • Revision ${Number(application.revision||1)}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
     <form id="edit-finance-package-form" class="form-grid">
       <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="editCreditTier">${["Tier 1","Tier 2","Tier 3","Tier 4"].map(x=>`<option ${application.creditTier===x?"selected":""}>${x}</option>`).join("")}</select></div>
       ${formField("Down Payment","editDownPayment",String(application.downPayment||0),"number","required min='0'")}
@@ -1133,7 +1134,14 @@ function editFinanceApplicationModal(application) {
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-edit-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="editFinanceNotes" placeholder="RP-only notes about this finance package.">${safe(application.internalNotes||"")}</textarea></div>
     </form>
-    ${preset ? `<div class="payment-lab-loaded">${icon("circle-check-big")}<div><strong>${safe(preset.scenarioLabel||"Payment Lab plan")} loaded</strong><span>${safe(preset.creditTier||"Tier 1")} • ${safe(preset.fAndIMenu||"Custom")} F&I menu • all package fields populated</span></div></div>` : ""}
+    ${revisionHistory.length ? `<div class="finance-revision-history">
+      <div class="record-section-head"><div><span class="eyebrow">PACKAGE HISTORY</span><h4>Finance Revisions</h4></div><b>${revisionHistory.length}</b></div>
+      <div class="revision-list">${revisionHistory.slice(-5).reverse().map(r=>`<div class="revision-row">
+        <span class="revision-number">R${Number(r.revision||1)}</span>
+        <span><strong>${money(r.monthlyPayment||0)}/mo</strong><small>${Number(r.termMonths||0)} mo • ${Number(r.apr||0).toFixed(2)}% • ${safe(r.status||"saved")}</small></span>
+        <span><strong>${money(r.amountFinanced||0)}</strong><small>${safe(r.editedByName||"Sterling Finance")} • ${safe(r.editedAt||"")}</small></span>
+      </div>`).join("")}</div>
+    </div>` : ""}
     <div class="finance-summary">
       <div><span>Products</span><strong id="editSumProducts">$0</strong></div>
       <div><span>Amount Financed</span><strong id="editSumPrincipal">$0</strong></div>
@@ -1175,6 +1183,16 @@ function editFinanceApplicationModal(application) {
       monthlyPayment:Number(calc.payment.toFixed(2)),
       status:document.querySelector("#editFinanceStatus").value,
       internalNotes:document.querySelector("#editFinanceNotes").value.trim(),
+      revision:Number(application.revision||0)+1,
+      lastRevisionAt:new Date().toISOString(),
+      revisionHistory:[...revisionHistory,{
+        revision:Number(application.revision||0)+1,
+        status:document.querySelector("#editFinanceStatus").value,
+        apr:calc.apr,termMonths:calc.term,downPayment:calc.down,
+        amountFinanced:calc.principal,monthlyPayment:Number(calc.payment.toFixed(2)),
+        products:selectedProducts,editedAt:new Date().toISOString(),
+        editedByName:state.profile?.displayName||state.user.email
+      }],
       lastEditedBy:state.user.uid,
       lastEditedByName:state.profile?.displayName||state.user.email
     };
