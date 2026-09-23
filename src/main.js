@@ -1231,7 +1231,7 @@ function monthlyPayment(principal, apr, months) {
   return p*r/(1-Math.pow(1+r,-n));
 }
 
-function financeWorksheetModal(d) {
+function financeWorksheetModal(d, preset = null) {
   const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
   const existing=state.data.financeApplications.find(x=>x.dealId===d.id);
   const sale=Number(d.counterPrice || d.finalPrice || d.price || 0);
@@ -1241,15 +1241,24 @@ function financeWorksheetModal(d) {
     ["maintenance","Maintenance Plan",1495],
     ["tire_wheel","Tire & Wheel Protection",895]
   ];
-  const selected=new Set(existing?.products || []);
+  const selected=new Set(preset?.products || existing?.products || []);
   modal("Finance Worksheet", `
     <div class="finance-hero"><div><span class="eyebrow">DEAL ${safe(d.dealNumber || "")}</span><h3>${safe(d.customerName || "Customer")}</h3><p>${safe(d.vehicleName || "Vehicle")}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
+    <div class="finance-workspace-actions">
+      <button class="btn secondary small" id="finance-payment-lab">${icon("sliders-horizontal")} Payment Lab</button>
+      <div class="finance-menu-presets">
+        <span>F&I Menu:</span>
+        <button class="chip-btn" type="button" data-fi-menu="base">Base</button>
+        <button class="chip-btn" type="button" data-fi-menu="protect">Protect</button>
+        <button class="chip-btn" type="button" data-fi-menu="complete">Complete</button>
+      </div>
+    </div>
     <form id="finance-form" class="form-grid">
       <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="creditTier"><option>Tier 1</option><option>Tier 2</option><option>Tier 3</option><option>Tier 4</option></select></div>
-      ${formField("Down Payment","downPayment",String(existing?.downPayment || 0),"number","required min='0'")}
+      ${formField("Down Payment","downPayment",String(preset?.downPayment ?? existing?.downPayment ?? 0),"number","required min='0'")}
       <div class="field"><label>Manager-Approved Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.managerApprovedAllowance ?? d.tradeAllowance ?? 0)}" readonly></div>
-      ${formField("APR","apr",String(existing?.apr || 6.49),"number","required min='0' step='0.01'")}
-      <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(existing?.termMonths||72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
+      ${formField("APR","apr",String(preset?.apr ?? existing?.apr ?? 6.49),"number","required min='0' step='0.01'")}
+      <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(preset?.termMonths ?? existing?.termMonths ?? 72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(existing?.internalNotes||"")}</textarea></div>
     </form>
@@ -1273,6 +1282,16 @@ function financeWorksheetModal(d) {
     return {productTotal,down,allowance,principal,apr,term,payment};
   };
   document.querySelectorAll("#finance-form input,#finance-form select").forEach(x=>x.addEventListener("input",calculate));
+  document.querySelector("#finance-payment-lab")?.addEventListener("click",()=>financePaymentLabModal(d));
+  document.querySelectorAll("[data-fi-menu]").forEach(btn=>btn.addEventListener("click",()=>{
+    const menu={
+      base:[],
+      protect:["gap","extended_warranty"],
+      complete:["gap","extended_warranty","maintenance","tire_wheel"]
+    }[btn.dataset.fiMenu] || [];
+    document.querySelectorAll("[data-finance-product]").forEach(box=>box.checked=menu.includes(box.dataset.financeProduct));
+    calculate();
+  }));
   calculate();
 
   document.querySelector("#save-finance")?.addEventListener("click",async()=>{
