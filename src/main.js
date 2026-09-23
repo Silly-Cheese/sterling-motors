@@ -1831,20 +1831,77 @@ function dealDetailModal(d) {
 }
 
 function counterDealModal(d) {
-  modal("Counter Deal", `<form id="counter-form" class="form-grid">
-    ${formField("Counter Price","counterPrice",String(d.counterPrice || d.price || 0),"number","required")}
-    <div class="field full"><label>Manager Note</label><textarea class="plain-input textarea" id="managerNote" placeholder="Explain the counter or required changes..." required></textarea></div>
-  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-counter">${icon("send")} Send Counter</button>`);
+  const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
+  modal("Counter Deal", `
+    <div class="counter-package-head">
+      <div><span class="eyebrow">MANAGER COUNTER</span><h3>${safe(d.dealNumber||"Deal Jacket")}</h3><p>Adjust the vehicle deal and trade values together.</p></div>
+      ${trade ? statusPill(trade.managerApprovalStatus||"pending") : ""}
+    </div>
+    <form id="counter-form" class="form-grid">
+      ${formField("Counter Vehicle Price","counterPrice",String(d.counterPrice || d.price || 0),"number","required min='0'")}
+      ${trade ? `
+        ${formField("Manager Trade ACV","counterTradeAcv",String(trade.acv||0),"number","required min='0'")}
+        ${formField("Manager Trade Allowance","counterTradeAllowance",String(trade.allowance||0),"number","required min='0'")}
+        <div class="field"><label>Allowance Position</label><div class="calculated-field" id="counterTradeVariance"></div></div>
+      ` : ""}
+      <div class="field full"><label>Manager Note</label><textarea class="plain-input textarea" id="managerNote" placeholder="Explain the counter or required changes..." required></textarea></div>
+    </form>
+  `, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-counter">${icon("send")} Send Counter</button>`);
+
+  const syncTradeVariance=()=>{
+    if(!trade)return;
+    const acv=Number(document.querySelector("#counterTradeAcv")?.value||0);
+    const allowance=Number(document.querySelector("#counterTradeAllowance")?.value||0);
+    const variance=allowance-acv;
+    const el=document.querySelector("#counterTradeVariance");
+    if(el) el.innerHTML=`<strong class="${variance>0?"negative-value":"positive-value"}">${variance>0?"Over-Allowance ":"ACV Cushion "}${money(Math.abs(variance))}</strong>`;
+  };
+  document.querySelector("#counterTradeAcv")?.addEventListener("input",syncTradeVariance);
+  document.querySelector("#counterTradeAllowance")?.addEventListener("input",syncTradeVariance);
+  syncTradeVariance();
+
   document.querySelector("#save-counter")?.addEventListener("click", async () => {
     const form=document.querySelector("#counter-form"); if(!form.reportValidity()) return;
+    const button=document.querySelector("#save-counter");
+    button.disabled=true;
     const counterPrice=Number(document.querySelector("#counterPrice").value || 0);
     const managerNote=document.querySelector("#managerNote").value.trim();
+    const tradeAcv=trade ? Number(document.querySelector("#counterTradeAcv").value||0) : 0;
+    const tradeAllowance=trade ? Number(document.querySelector("#counterTradeAllowance").value||0) : 0;
     try {
-      await updateRecord("deals", d.id, { stage:"negotiation", approvalStatus:"countered", counterPrice, managerNote, counteredBy:state.user.uid });
-      await createNotification({ type:"approval", title:"Manager counter received", message:`${d.dealNumber || "Deal"} was countered at ${money(counterPrice)}.`, dealId:d.id }, state.user);
-      await writeAudit(state.user, "deal.countered", "deal", d.id, { counterPrice });
-      closeModal(); await refreshData(); setFlash("Counter sent back to Sales.");
-    } catch(e) { setFlash(e.message || "Unable to counter deal.", "error"); }
+      if(trade) {
+        await updateRecord("tradeIns",trade.id,{
+          acv:tradeAcv,
+          allowance:tradeAllowance,
+          managerApprovalStatus:"countered",
+          managerCounterAcv:tradeAcv,
+          managerCounterAllowance:tradeAllowance,
+          managerCounteredBy:state.user.uid,
+          managerCounteredByName:state.profile?.displayName||state.user.email
+        });
+      }
+      await updateRecord("deals", d.id, {
+        stage:"negotiation",
+        approvalStatus:"countered",
+        counterPrice,
+        managerNote,
+        tradeApprovalStatus:trade ? "countered" : "not_applicable",
+        tradeAcv:tradeAcv,
+        tradeAllowance:tradeAllowance,
+        counteredBy:state.user.uid
+      });
+      await createNotification({
+        type:"approval",
+        title:"Manager counter received",
+        message:`${d.dealNumber || "Deal"} was countered at ${money(counterPrice)}${trade ? ` with a ${money(tradeAllowance)} trade allowance` : ""}.`,
+        dealId:d.id
+      }, state.user);
+      await writeAudit(state.user, "deal.countered", "deal", d.id, { counterPrice,tradeInId:trade?.id||"",tradeAcv,tradeAllowance });
+      closeModal(); await refreshData(); setFlash("Counter package sent back to Sales.");
+    } catch(e) {
+      button.disabled=false;
+      setFlash(e.message || "Unable to counter deal.", "error");
+    }
   });
 }
 
