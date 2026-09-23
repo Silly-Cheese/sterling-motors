@@ -1251,6 +1251,59 @@ function acquisitionDetailModal(a) {
   document.querySelector("#receive-acquisition")?.addEventListener("click",()=>receiveAcquisitionModal(a));
 }
 
+function staffAcceptAcquisitionModal(a) {
+  modal("Accept Offer for Seller", `
+    <div class="staff-assisted-accept">
+      <span class="record-icon">${icon("handshake")}</span>
+      <div>
+        <span class="eyebrow">SOLO / STAFF-ASSISTED ACCEPTANCE</span>
+        <h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3>
+        <p>You are accepting Sterling\'s ${money(a.offerAmount)} offer on behalf of the seller.</p>
+      </div>
+    </div>
+    <div class="staff-assisted-warning">
+      ${icon("shield-check")}
+      <div>
+        <strong>This will be recorded as staff-assisted acceptance.</strong>
+        <span>DRIVE records who accepted the offer for the seller, which is useful when one person is running both sides of the RP.</span>
+      </div>
+    </div>
+    <div class="record-grid">
+      <div><span>Seller</span><strong>${safe(a.sellerName||"Customer")}</strong></div>
+      <div><span>Sterling Offer</span><strong>${money(a.offerAmount)}</strong></div>
+      <div><span>Appraised Condition</span><strong>${safe(a.appraisedCondition||"Reviewed")}</strong></div>
+      <div><span>Offer Revision</span><strong>${Number(a.offerRevision||1)}</strong></div>
+    </div>
+    <div class="field full">
+      <label>Acceptance Note <span class="optional-label">Optional</span></label>
+      <textarea class="plain-input textarea" id="staff-accept-note" placeholder="Example: Solo RP acceptance / seller authorized Sterling staff to proceed."></textarea>
+    </div>
+  `, `
+    <button class="btn secondary" data-close-modal>Cancel</button>
+    <button class="btn success-btn" id="confirm-staff-accept">${icon("handshake")} Accept ${money(a.offerAmount)} for Seller</button>
+  `);
+
+  document.querySelector("#confirm-staff-accept")?.addEventListener("click", async () => {
+    const btn=document.querySelector("#confirm-staff-accept");
+    btn.disabled=true;
+    const note=document.querySelector("#staff-accept-note").value.trim();
+    try {
+      await staffAcceptAcquisitionOffer(a.id,state.user,note);
+      await writeAudit(state.user,"acquisition.staff_assisted_acceptance","vehicleAcquisition",a.id,{
+        offerAmount:Number(a.offerAmount||0),
+        sellerName:a.sellerName||"",
+        acceptanceMethod:"staff_assisted"
+      });
+      closeModal();
+      await refreshData();
+      setFlash(`Offer accepted for ${a.sellerName||"seller"}. Vehicle is ready for Sterling intake.`);
+    } catch(e) {
+      btn.disabled=false;
+      setFlash(e.message||"Unable to accept the offer for the seller.","error");
+    }
+  });
+}
+
 function customerAcquisitionOfferModal(a) {
   const status=a.status||"submitted";
   modal(status==="offer_made" ? "Your Sterling Purchase Offer" : "Your Vehicle Submission",`
