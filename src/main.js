@@ -1176,50 +1176,222 @@ function acquisitionSubmissionModal() {
 
 function acquisitionDetailModal(a) {
   if(!a)return;
+  const staff=!!state.profile?.isStaff;
+  const canManage=canManageAcquisitions();
+
+  if(!staff) {
+    customerAcquisitionOfferModal(a);
+    return;
+  }
+
+  const status=a.status||"submitted";
+  const offerOpen=status==="offer_made";
+
   modal("Vehicle Acquisition",`
-    <div class="record-hero"><div class="record-icon">${icon("car-front")}</div><div><span class="eyebrow">STERLING ACQUISITIONS</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${safe(a.sellerName||"Customer")} • ${Number(a.mileage||0).toLocaleString()} mi</p></div>${statusPill(a.status||"submitted")}</div>
-    <div class="record-grid"><div><span>VIN</span><strong>${safe(a.vin||"—")}</strong></div><div><span>Condition</span><strong>${safe(a.condition||"—")}</strong></div><div><span>Requested</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div><div><span>Sterling Offer</span><strong>${a.offerAmount?money(a.offerAmount):"Not offered"}</strong></div><div><span>Color</span><strong>${safe(a.color||"—")}</strong></div><div><span>Submitted</span><strong>${fmtDate(a.createdAt)}</strong></div></div>
+    <div class="record-hero">
+      <div class="record-icon">${icon("car-front")}</div>
+      <div><span class="eyebrow">STERLING ACQUISITIONS</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${safe(a.sellerName||"Customer")} • ${Number(a.mileage||0).toLocaleString()} mi</p></div>
+      ${statusPill(status)}
+    </div>
+
+    <div class="acquisition-progress">
+      ${[
+        ["submitted","Submitted",["submitted","under_review","offer_made","accepted","declined","review_requested","received"].includes(status)],
+        ["under_review","Review",["under_review","offer_made","accepted","declined","review_requested","received"].includes(status)],
+        ["offer_made","Offer Sent",["offer_made","accepted","declined","review_requested","received"].includes(status)],
+        ["accepted","Accepted",["accepted","received"].includes(status)],
+        ["received","Received",status==="received"]
+      ].map(([id,label,done])=>`<div class="${done?"complete":""} ${status===id?"current":""}"><span>${done?icon("check"):icon("circle")}</span><small>${label}</small></div>`).join("")}
+    </div>
+
+    <div class="record-grid">
+      <div><span>VIN</span><strong>${safe(a.vin||"—")}</strong></div>
+      <div><span>Seller Condition</span><strong>${safe(a.condition||"—")}</strong></div>
+      <div><span>Requested Price</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div>
+      <div><span>Sterling Offer</span><strong>${a.offerAmount?money(a.offerAmount):"Not offered"}</strong></div>
+      <div><span>Appraised Condition</span><strong>${safe(a.appraisedCondition||"Not appraised")}</strong></div>
+      <div><span>Assigned / Offered By</span><strong>${safe(a.offeredByName||a.reviewStartedByName||"Unassigned")}</strong></div>
+    </div>
+
     ${a.notes?`<div class="manager-note"><span>SELLER NOTES</span><p>${safe(a.notes)}</p></div>`:""}
     ${a.appraisalNotes?`<div class="manager-note"><span>APPRAISAL NOTES</span><p>${safe(a.appraisalNotes)}</p></div>`:""}
+    ${a.offerNote?`<div class="manager-note"><span>OFFER NOTE TO SELLER</span><p>${safe(a.offerNote)}</p></div>`:""}
+    ${a.customerResponseNote?`<div class="customer-response-note"><span>CUSTOMER RESPONSE</span><p>${safe(a.customerResponseNote)}</p></div>`:""}
+
+    ${!canManage ? `<div class="acquisition-access-note">${icon("lock-keyhole")}<div><strong>View-only</strong><span>Your account needs Vehicle Acquisitions permission to review or offer on this vehicle.</span></div></div>` : ""}
+
     <div class="workflow-actions">
-      ${["submitted","appraising"].includes(a.status||"submitted") && (can("sales.manage")||can("inventory.manage"))?`<button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} Appraise & Make Offer</button>`:""}
-      ${a.status==="offer_made" && (can("sales.manage")||can("inventory.manage"))?`<button class="btn secondary" id="edit-acquisition-offer">${icon("pencil")} Edit Offer</button>`:""}
-      ${a.status==="accepted" && (can("inventory.manage")||can("admin.full"))?`<button class="btn primary" id="receive-acquisition">${icon("warehouse")} Receive into Inventory</button>`:""}
+      ${canManage && status==="submitted" ? `<button class="btn secondary" id="start-acquisition-review">${icon("clipboard-search")} Start Review</button><button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} Review & Make Offer</button>` : ""}
+      ${canManage && ["under_review","review_requested"].includes(status) ? `<button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} ${status==="review_requested"?"Send Revised Offer":"Approve & Send Offer"}</button>` : ""}
+      ${canManage && offerOpen ? `<button class="btn secondary" id="edit-acquisition-offer">${icon("pencil")} Revise Offer</button><button class="btn danger-btn" id="withdraw-acquisition-offer">${icon("ban")} Withdraw Offer</button>` : ""}
+      ${status==="accepted" && (can("inventory.manage")||can("acquisitions.manage")||can("admin.full")) ? `<button class="btn primary" id="receive-acquisition">${icon("warehouse")} Receive into Inventory</button>` : ""}
     </div>
   `);
+
+  document.querySelector("#start-acquisition-review")?.addEventListener("click",async()=>{
+    const btn=document.querySelector("#start-acquisition-review");btn.disabled=true;
+    try{
+      await startAcquisitionReview(a.id,state.user);
+      await writeAudit(state.user,"acquisition.review_started","vehicleAcquisition",a.id,{});
+      closeModal();await refreshData();setFlash("Acquisition review started.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to start review.","error");}
+  });
   document.querySelector("#make-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
   document.querySelector("#edit-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
+  document.querySelector("#withdraw-acquisition-offer")?.addEventListener("click",async()=>{
+    const btn=document.querySelector("#withdraw-acquisition-offer");btn.disabled=true;
+    try{
+      await updateRecord("vehicleAcquisitions",a.id,{status:"under_review",offerAmount:0,offerNote:"",customerResponse:"",customerResponseNote:""});
+      await writeAudit(state.user,"acquisition.offer_withdrawn","vehicleAcquisition",a.id,{previousOffer:a.offerAmount||0});
+      closeModal();await refreshData();setFlash("Offer withdrawn and returned to review.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to withdraw offer.","error");}
+  });
   document.querySelector("#receive-acquisition")?.addEventListener("click",()=>receiveAcquisitionModal(a));
 }
 
+function customerAcquisitionOfferModal(a) {
+  const status=a.status||"submitted";
+  modal(status==="offer_made" ? "Your Sterling Purchase Offer" : "Your Vehicle Submission",`
+    <div class="customer-offer-modal-hero ${status==="offer_made"?"offer-live":""}">
+      <span class="record-icon">${icon(status==="offer_made"?"badge-dollar-sign":"car-front")}</span>
+      <div><span class="eyebrow">${status==="offer_made"?"STERLING OFFER":"SELL YOUR CAR"}</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${Number(a.mileage||0).toLocaleString()} mi • ${safe(a.vin||"VIN pending")}</p></div>
+      ${statusPill(status)}
+    </div>
+
+    ${status==="offer_made" ? `
+      <div class="customer-offer-amount"><span>Sterling will purchase this vehicle for</span><strong>${money(a.offerAmount)}</strong><small>Fictional RP purchase offer</small></div>
+      <div class="offer-detail-grid">
+        <div><span>Your Requested Price</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div>
+        <div><span>Appraised Condition</span><strong>${safe(a.appraisedCondition||"Reviewed")}</strong></div>
+        <div><span>Offer Prepared By</span><strong>${safe(a.offeredByName||"Sterling Acquisitions")}</strong></div>
+        <div><span>Offer Date</span><strong>${fmtDate(a.offeredAt)}</strong></div>
+      </div>
+      ${a.appraisalNotes?`<div class="manager-note"><span>APPRAISAL SUMMARY</span><p>${safe(a.appraisalNotes)}</p></div>`:""}
+      ${a.offerNote?`<div class="offer-note"><span>MESSAGE FROM STERLING</span><p>${safe(a.offerNote)}</p></div>`:""}
+      <div class="offer-decision-box">
+        <span class="eyebrow">YOUR DECISION</span>
+        <h4>What would you like to do with Sterling's offer?</h4>
+        <p>Accepting moves the vehicle to dealership intake. Declining closes this offer. You can also ask the acquisition team to review the offer again.</p>
+      </div>
+    ` : status==="accepted" ? `
+      <div class="customer-decision-state success">${icon("circle-check-big")}<div><strong>Offer accepted</strong><span>Sterling's acquisition team can now receive your vehicle into dealership inventory.</span></div></div>
+    ` : status==="declined" ? `
+      <div class="customer-decision-state declined">${icon("x-circle")}<div><strong>Offer declined</strong><span>This Sterling purchase offer has been closed.</span></div></div>
+    ` : status==="review_requested" ? `
+      <div class="customer-decision-state review">${icon("message-square-more")}<div><strong>Another review requested</strong><span>Sterling Acquisitions can revise the offer and send it back to you.</span></div></div>
+      ${a.customerResponseNote?`<div class="manager-note"><span>YOUR NOTE</span><p>${safe(a.customerResponseNote)}</p></div>`:""}
+    ` : `
+      <div class="customer-decision-state review">${icon("clock-3")}<div><strong>${status==="under_review"?"Sterling is reviewing your vehicle":"Submission received"}</strong><span>${status==="under_review"?"Your vehicle is currently being appraised.":"The acquisition team has not issued an offer yet."}</span></div></div>
+    `}
+
+    <div class="record-grid">
+      <div><span>Submitted Condition</span><strong>${safe(a.condition||"—")}</strong></div>
+      <div><span>Color</span><strong>${safe(a.color||"—")}</strong></div>
+      <div><span>Requested Price</span><strong>${a.requestedPrice?money(a.requestedPrice):"Open"}</strong></div>
+      <div><span>Submitted</span><strong>${fmtDate(a.createdAt)}</strong></div>
+    </div>
+  `, status==="offer_made" ? `
+    <button class="btn secondary" data-close-modal>Not Yet</button>
+    <span class="modal-footer-spacer"></span>
+    <button class="btn secondary" id="request-offer-review">${icon("message-square-more")} Ask for Review</button>
+    <button class="btn danger-btn" id="decline-acquisition-offer">${icon("x")} Decline</button>
+    <button class="btn success-btn" id="accept-acquisition-offer">${icon("check")} Accept ${money(a.offerAmount)}</button>
+  ` : `<span class="modal-footer-spacer"></span><button class="btn secondary" data-close-modal>Close</button>`);
+
+  document.querySelector("#accept-acquisition-offer")?.addEventListener("click",()=>customerOfferResponseModal(a,"accept"));
+  document.querySelector("#decline-acquisition-offer")?.addEventListener("click",()=>customerOfferResponseModal(a,"decline"));
+  document.querySelector("#request-offer-review")?.addEventListener("click",()=>customerOfferResponseModal(a,"review"));
+}
+
+function customerOfferResponseModal(a,response) {
+  const config={
+    accept:{title:"Accept Sterling Offer",icon:"handshake",button:"Accept Offer",tone:"success-btn",help:`You are accepting Sterling's ${money(a.offerAmount)} RP purchase offer.`},
+    decline:{title:"Decline Sterling Offer",icon:"x-circle",button:"Decline Offer",tone:"danger-btn",help:"This closes the current purchase offer."},
+    review:{title:"Ask Sterling to Review the Offer",icon:"message-square-more",button:"Request Review",tone:"primary",help:"Tell the acquisition team what you would like them to reconsider."}
+  }[response];
+  modal(config.title,`
+    <div class="offer-response-confirm">
+      <span class="record-icon">${icon(config.icon)}</span>
+      <div><span class="eyebrow">SELL YOUR CAR</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${config.help}</p></div>
+    </div>
+    <div class="field full"><label>${response==="review"?"What should Sterling reconsider?":"Response Note"} <span class="optional-label">${response==="review"?"Required":"Optional"}</span></label><textarea class="plain-input textarea" id="offer-response-note" ${response==="review"?"required":""} placeholder="${response==="review"?"Explain what you want reviewed...":"Optional note for Sterling Acquisitions..."}"></textarea></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn ${config.tone}" id="confirm-offer-response">${icon(config.icon)} ${config.button}</button>`);
+
+  document.querySelector("#confirm-offer-response")?.addEventListener("click",async()=>{
+    const note=document.querySelector("#offer-response-note").value.trim();
+    if(response==="review" && !note){setFlash("Tell Sterling what you want reviewed.","error");return;}
+    const btn=document.querySelector("#confirm-offer-response");btn.disabled=true;
+    try{
+      await respondToAcquisitionOffer(a.id,response,note);
+      closeModal();await refreshData();
+      setFlash(response==="accept"?"Sterling offer accepted.":response==="decline"?"Sterling offer declined.":"Review request sent to Sterling Acquisitions.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to send your response.","error");}
+  });
+}
+
 function acquisitionOfferModal(a) {
-  modal("Sterling Purchase Offer",`<form id="acq-offer-form" class="form-grid">
-    <div class="field full"><label>Vehicle</label><input class="plain-input" value="${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}" disabled></div>
-    ${formField("Sterling Offer","acqOffer",String(a.offerAmount||a.requestedPrice||0),"number","required min='0'")}
-    <div class="field"><label>Appraised Condition</label><select class="plain-input" id="acqAppraisedCondition"><option>Excellent</option><option>Good</option><option>Fair</option><option>Needs Reconditioning</option></select></div>
-    <div class="field full"><label>Appraisal Notes</label><textarea class="plain-input textarea" id="acqAppraisalNotes" required placeholder="Inspection findings and valuation notes...">${safe(a.appraisalNotes||"")}</textarea></div>
-  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="send-acquisition-offer">${icon("send")} Send Offer</button>`);
+  const revision=(Number(a.offerRevision||0)+1);
+  modal(a.offerAmount ? "Revise Sterling Purchase Offer" : "Create Sterling Purchase Offer",`
+    <div class="offer-builder-hero">
+      <div><span class="eyebrow">ACQUISITION OFFER • REVISION ${revision}</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>${safe(a.sellerName||"Seller")} requested ${a.requestedPrice?money(a.requestedPrice):"an open offer"}.</p></div>
+      <div><span>Current / Prior Offer</span><strong>${a.offerAmount?money(a.offerAmount):"None"}</strong></div>
+    </div>
+    <form id="acq-offer-form" class="form-grid">
+      ${formField("Sterling Purchase Offer","acqOffer",String(a.offerAmount||a.requestedPrice||0),"number","required min='1'")}
+      <div class="field"><label>Appraised Condition</label><select class="plain-input" id="acqAppraisedCondition">
+        ${["Excellent","Good","Fair","Needs Reconditioning","Wholesale Only"].map(x=>`<option ${a.appraisedCondition===x?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field full"><label>Internal Appraisal Notes</label><textarea class="plain-input textarea" id="acqAppraisalNotes" required placeholder="Inspection findings and valuation notes...">${safe(a.appraisalNotes||"")}</textarea></div>
+      <div class="field full"><label>Message to Seller <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="acqOfferNote" placeholder="Explain the offer or any conditions...">${safe(a.offerNote||"")}</textarea></div>
+      ${a.customerResponseNote?`<div class="field full"><div class="customer-response-note"><span>CUSTOMER ASKED FOR REVIEW</span><p>${safe(a.customerResponseNote)}</p></div></div>`:""}
+    </form>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="send-acquisition-offer">${icon("send")} ${a.offerAmount?"Send Revised Offer":"Approve & Send Offer"}</button>`);
+
   document.querySelector("#send-acquisition-offer")?.addEventListener("click",async()=>{
     const form=document.querySelector("#acq-offer-form");if(!form.reportValidity())return;
     const offer=Number(document.querySelector("#acqOffer").value||0);
-    try{await updateRecord("vehicleAcquisitions",a.id,{offerAmount:offer,appraisedCondition:document.querySelector("#acqAppraisedCondition").value,appraisalNotes:document.querySelector("#acqAppraisalNotes").value.trim(),status:"offer_made",appraisedBy:state.user.uid,appraisedByName:state.profile?.displayName||state.user.email});await writeAudit(state.user,"acquisition.offer_made","vehicleAcquisition",a.id,{offerAmount:offer});closeModal();await refreshData();setFlash("Sterling purchase offer sent.");}
-    catch(e){setFlash(e.message||"Unable to send offer.","error");}
+    const btn=document.querySelector("#send-acquisition-offer");btn.disabled=true;
+    try{
+      await sendAcquisitionOffer(a.id,{
+        offerAmount:offer,
+        appraisedCondition:document.querySelector("#acqAppraisedCondition").value,
+        appraisalNotes:document.querySelector("#acqAppraisalNotes").value.trim(),
+        offerNote:document.querySelector("#acqOfferNote").value.trim()
+      },state.user);
+      await updateRecord("vehicleAcquisitions",a.id,{offerRevision:revision});
+      await writeAudit(state.user,"acquisition.offer_made","vehicleAcquisition",a.id,{offerAmount:offer,offerRevision:revision});
+      closeModal();await refreshData();setFlash(`Sterling purchase offer of ${money(offer)} sent to ${a.sellerName||"the seller"}.`);
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to send offer.","error");}
   });
 }
 
 function receiveAcquisitionModal(a) {
-  const stock=`ACQ-${String(Date.now()).slice(-6)}`;
-  modal("Receive Purchased Vehicle",`<form id="receive-acq-form" class="form-grid">
-    ${formField("Stock Number","acqStock",stock,"text","required")}
-    ${formField("Retail Price","acqRetail",String(Math.round(Number(a.offerAmount||0)*1.15)),"number","required min='0'")}
-    <div class="field"><label>Initial Status</label><select class="plain-input" id="acqInitialStatus"><option value="reconditioning">Reconditioning</option><option value="hold">Hold</option><option value="available">Available</option></select></div>
-    <div class="field"><label>Inventory Location</label><select class="plain-input" id="acqLocation"><option>Used Vehicle Lot</option><option>Trade-In Inspection</option><option>Detail / Recon</option><option>Holding Area</option></select></div>
-  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="receive-acq-confirm">${icon("warehouse")} Receive Vehicle</button>`);
+  const stock=a.stockNumber||`ACQ-${String(a.id).slice(-6).toUpperCase()}`;
+  modal("Receive Accepted Vehicle",`
+    <div class="record-hero"><div class="record-icon">${icon("warehouse")}</div><div><span class="eyebrow">ACQUISITION INTAKE</span><h3>${safe(a.year||"")} ${safe(a.make||"")} ${safe(a.model||"")}</h3><p>Accepted purchase offer • ${money(a.offerAmount)}</p></div>${statusPill(a.status||"accepted")}</div>
+    <form id="receive-acq-form" class="form-grid">
+      ${formField("Stock Number","acqStock",stock,"text","required")}
+      ${formField("Retail Price","acqRetail",String(Math.round(Number(a.offerAmount||0)*1.15)),"number","required min='0'")}
+      <div class="field"><label>Initial Status</label><select class="plain-input" id="acqInitialStatus"><option value="reconditioning">Reconditioning</option><option value="service_review">Service Review</option><option value="hold">Hold</option><option value="available">Available</option></select></div>
+      <div class="field"><label>Inventory Location</label><select class="plain-input" id="acqLocation"><option>Used Vehicle Intake</option><option>Used Vehicle Lot</option><option>Detail / Recon</option><option>Holding Area</option></select></div>
+    </form>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="receive-acq-confirm">${icon("warehouse")} Receive Vehicle</button>`);
+
   const stockInput=document.querySelector("#acqStock");if(stockInput&&!stockInput.value)stockInput.value=stock;
   document.querySelector("#receive-acq-confirm")?.addEventListener("click",async()=>{
     const form=document.querySelector("#receive-acq-form");if(!form.reportValidity())return;
-    try{const vehicle=await createVehicle({year:a.year,make:a.make,model:a.model,trim:a.trim||"",vin:a.vin,mileage:a.mileage,color:a.color||"",stockNumber:document.querySelector("#acqStock").value.trim()||stock,price:Number(document.querySelector("#acqRetail").value||0),msrp:Number(document.querySelector("#acqRetail").value||0),status:document.querySelector("#acqInitialStatus").value,location:document.querySelector("#acqLocation").value,sourceAcquisitionId:a.id,acquisitionCost:Number(a.offerAmount||0)},state.user);await updateRecord("vehicleAcquisitions",a.id,{status:"received",inventoryVehicleId:vehicle.id,receivedBy:state.user.uid});await writeAudit(state.user,"acquisition.received","vehicleAcquisition",a.id,{vehicleId:vehicle.id,offerAmount:a.offerAmount});closeModal();await refreshData();setFlash("Vehicle received into Sterling inventory.");}
-    catch(e){setFlash(e.message||"Unable to receive vehicle.","error");}
+    const btn=document.querySelector("#receive-acq-confirm");btn.disabled=true;
+    try{
+      const vehicle=await receiveAcquisitionVehicle(a,{
+        stockNumber:document.querySelector("#acqStock").value.trim()||stock,
+        price:Number(document.querySelector("#acqRetail").value||0),
+        msrp:Number(document.querySelector("#acqRetail").value||0),
+        status:document.querySelector("#acqInitialStatus").value,
+        location:document.querySelector("#acqLocation").value
+      },state.user);
+      await writeAudit(state.user,"acquisition.received","vehicleAcquisition",a.id,{vehicleId:vehicle.id,offerAmount:a.offerAmount});
+      closeModal();await refreshData();setFlash("Accepted vehicle received into Sterling inventory.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to receive vehicle.","error");}
   });
 }
 
