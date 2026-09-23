@@ -1850,7 +1850,7 @@ function currentPage() {
 
 function commandPalette() {
   const commands = [
-    ...nav.map(([id, ico, label]) => ({
+    ...nav.filter(([id]) => state.profile?.isStaff || ["dashboard","inventory","acquisitions","financeAppointments"].includes(id)).map(([id, ico, label]) => ({
       id:"page-"+id, icon:ico, label, description:pageSubtitleFor(id), type:"Navigate", run:()=>{ state.page=id; closeModal(); render(); }
     })),
     ...(can("sales.manage") ? [
@@ -1868,7 +1868,8 @@ function commandPalette() {
     ...(can("parts.manage") ? [
       {id:"new-part",icon:"package-plus",label:"Add Part",description:"Create a Parts inventory record",type:"Action",run:()=>{closeModal();newPartModal();}}
     ] : []),
-    {id:"sell-car",icon:"car-front",label:"Sell a Car to Sterling",description:"Submit a vehicle to Sterling Acquisitions",type:"Action",run:()=>{closeModal();acquisitionSubmissionModal();}}
+    {id:"sell-car",icon:"car-front",label:"Sell a Car to Sterling",description:"Submit a vehicle to Sterling Acquisitions",type:"Action",run:()=>{closeModal();acquisitionSubmissionModal();}},
+    {id:"finance-appointment",icon:"calendar-clock",label:"Finance Appointment",description:"Request or schedule a Finance consultation",type:"Action",run:()=>{closeModal();financeAppointmentModal();}}
   ];
 
   const renderCommands = term => {
