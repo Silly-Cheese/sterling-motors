@@ -161,10 +161,33 @@ service cloud.firestore {
       allow read: if activeStaff();
       allow create: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
       allow update: if
-        permitted('sales.manage') ||
-        permitted('deals.manage') ||
-        permitted('inventory.manage') ||
         permitted('admin.full') ||
+        permitted('deals.approve') ||
+        ((permitted('sales.manage') || permitted('deals.manage')) &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'managerApprovedAcv',
+            'managerApprovedAllowance',
+            'managerApprovedBy',
+            'managerApprovedByName',
+            'managerCounterAcv',
+            'managerCounterAllowance',
+            'managerCounteredBy',
+            'managerCounteredByName'
+          ]) &&
+          (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['managerApprovalStatus']) ||
+            request.resource.data.managerApprovalStatus in ['not_submitted', 'pending'])) ||
+        (permitted('inventory.manage') &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'managerApprovalStatus',
+            'managerApprovedAcv',
+            'managerApprovedAllowance',
+            'managerApprovedBy',
+            'managerApprovedByName',
+            'managerCounterAcv',
+            'managerCounterAllowance',
+            'managerCounteredBy',
+            'managerCounteredByName'
+          ])) ||
         (permitted('finance.manage') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status',
