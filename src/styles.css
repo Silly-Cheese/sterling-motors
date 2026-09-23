@@ -388,7 +388,7 @@ tbody tr{transition:background .12s}tbody tr:hover{background:rgba(255,255,255,.
 
 
 /* Finance Experience Upgrade */
-.finance-attention-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin:0 0 12px}
+.finance-attention-strip{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px;margin:0 0 12px}
 .finance-attention-item{min-width:0;display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;border:1px solid #252c33;background:#101419;border-radius:12px;padding:11px;color:#b7bec5;text-align:left}
 button.finance-attention-item:hover{background:#151a20;border-color:#3b434b;transform:translateY(-1px)}
 .finance-attention-item>.attention-icon{width:33px;height:33px}.finance-attention-item>div{min-width:0}.finance-attention-item small,.finance-attention-item strong,.finance-attention-item span{display:block}
@@ -449,3 +449,15 @@ button.finance-attention-item:hover{background:#151a20;border-color:#3b434b;tran
 .finance-revision-history{border:1px solid #2b3239;background:#0f1317;border-radius:10px;padding:10px 11px;margin:10px 0}
 .revision-list{display:flex;flex-direction:column;gap:6px}.revision-row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;border:1px solid #242b31;background:#12171c;border-radius:8px;padding:8px 9px}.revision-number{width:34px;height:28px;border-radius:8px;background:#1b1811;border:1px solid #3d3528;color:#cbb47e;display:grid;place-items:center;font-size:7.5px;font-weight:700}.revision-row>span:nth-child(2) strong,.revision-row>span:nth-child(2) small,.revision-row>span:nth-child(3) strong,.revision-row>span:nth-child(3) small{display:block}.revision-row>span:nth-child(2) strong,.revision-row>span:nth-child(3) strong{font-size:8.5px}.revision-row small{font-size:7px;color:#66717b;margin-top:2px}.revision-row>span:nth-child(3){text-align:right}
 @media(max-width:560px){.revision-row{grid-template-columns:auto 1fr}.revision-row>span:nth-child(3){grid-column:2;text-align:left}}
+
+
+/* Finance acceptance and funding */
+.finance-acceptance-card{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #443a2b;background:linear-gradient(145deg,#19160f,#101419);border-radius:11px;padding:10px 11px;margin:10px 0}.finance-acceptance-card.accepted{border-color:#31503e;background:linear-gradient(145deg,#101d17,#101419)}.finance-acceptance-card>div{min-width:0}.finance-acceptance-card strong,.finance-acceptance-card small{display:block}.finance-acceptance-card strong{font-size:9.5px;margin:3px 0 2px}.finance-acceptance-card small{font-size:7.5px;color:#6e786f;line-height:1.45}
+.finance-acceptance-hero{display:flex;gap:12px;align-items:center;border-bottom:1px solid #252b32;padding-bottom:13px;margin-bottom:13px}.finance-acceptance-hero h3{font-size:16px;margin:4px 0 2px}.finance-acceptance-hero p{font-size:8.5px;color:#707a84;margin:0}.finance-acceptance-warning{display:flex;gap:9px;align-items:flex-start;border:1px solid #3a453d;background:#101914;border-radius:10px;padding:10px 11px;margin-top:10px;color:#8fc2a1}.finance-acceptance-warning>svg{width:15px;flex:none;margin-top:1px}.finance-acceptance-warning strong,.finance-acceptance-warning span{display:block}.finance-acceptance-warning strong{font-size:9px}.finance-acceptance-warning span{font-size:7.5px;color:#73897a;line-height:1.45;margin-top:2px}
+.finance-acceptance-record{display:flex;gap:9px;align-items:flex-start;border:1px solid #31503e;background:#101d17;border-radius:10px;padding:10px 11px;margin:10px 0;color:#8fd4ad}.finance-acceptance-record>svg{width:15px;flex:none;margin-top:1px}.finance-acceptance-record span,.finance-acceptance-record strong,.finance-acceptance-record small{display:block}.finance-acceptance-record span{font-size:7px;letter-spacing:.08em}.finance-acceptance-record strong{font-size:9px;margin:2px 0}.finance-acceptance-record small{font-size:7.5px;color:#758d7e;line-height:1.4}
+.status-pending-contracts,.status-submitted{color:#d7bd7f;border-color:#4b4027;background:#211c10}.status-pending-contracts span,.status-submitted span{background:#d8b45f}
+.status-funded,.status-closed{color:#8fd4ad;border-color:#274636;background:#102019}.status-funded span,.status-closed span{background:#71d09a}
+.status-exception,.status-declined{color:#df9696;border-color:#563232;background:#241414}.status-exception span,.status-declined span{background:#d77777}
+.status-conditional{color:#c2b0e2;border-color:#413653;background:#191421}.status-conditional span{background:#a98ad2}
+@media(max-width:1300px){.finance-attention-strip{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:760px){.finance-acceptance-card{align-items:flex-start;flex-direction:column}.finance-acceptance-card>.btn{width:100%}}
