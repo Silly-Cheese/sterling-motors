@@ -1074,7 +1074,7 @@ function editFinanceApplicationModal(application) {
     <form id="edit-finance-package-form" class="form-grid">
       <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="editCreditTier">${["Tier 1","Tier 2","Tier 3","Tier 4"].map(x=>`<option ${application.creditTier===x?"selected":""}>${x}</option>`).join("")}</select></div>
       ${formField("Down Payment","editDownPayment",String(application.downPayment||0),"number","required min='0'")}
-      <div class="field"><label>Trade Allowance</label><input class="plain-input" id="editTradeAllowance" type="number" min="0" value="${Number(application.tradeAllowance||0)}"></div>
+      <div class="field"><label>Manager-Approved Trade Allowance</label><input class="plain-input" id="editTradeAllowance" type="number" min="0" value="${Number(application.tradeAllowance||0)}" readonly><small class="field-help">Trade allowance remains controlled by the approved Deal Jacket.</small></div>
       ${formField("APR","editApr",String(application.apr||0),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="editTermMonths">${[24,36,48,60,72,84].map(n=>`<option value="${n}" ${Number(application.termMonths||0)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field"><label>Package Status</label><select class="plain-input" id="editFinanceStatus">${["draft","approved","revised","on_hold","finalized","voided"].map(x=>`<option value="${x}" ${(application.status||"approved")===x?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}</select></div>
@@ -2576,11 +2576,16 @@ function customerDetailModal(customer) {
   `,`
     ${can("customers.manage")||can("sales.manage") ? `<button class="btn secondary" id="edit-customer-details">${icon("pencil")} Edit Details</button>` : ""}
     <span class="modal-footer-spacer"></span>
+    ${can("finance.manage") ? `<button class="btn secondary" id="customer-finance-profile">${icon("landmark")} Finance Profile</button>` : ""}
     ${can("sales.manage") ? `<button class="btn secondary" id="customer-new-deal">${icon("handshake")} Start Deal</button>` : ""}
     ${can("service.manage") ? `<button class="btn primary" id="customer-new-ro">${icon("wrench")} Open Repair Order</button>` : ""}
   `);
 
   document.querySelector("#edit-customer-details")?.addEventListener("click",()=>editCustomerModal(customer));
+  document.querySelector("#customer-finance-profile")?.addEventListener("click",()=>{
+    const client=financeClientDirectory().find(x=>x.customerId===customer.id);
+    if(client) financeCustomerDetailModal(client);
+  });
   document.querySelector("#customer-new-deal")?.addEventListener("click",()=>{closeModal();dealModal(customer.id);});
   document.querySelector("#customer-new-ro")?.addEventListener("click",()=>{closeModal();repairOrderModal({customerId:customer.id});});
   document.querySelector("[data-checkout]")?.addEventListener("click",e=>checkoutCustomerModal(state.data.queue.find(q=>q.id===e.currentTarget.dataset.checkout),customer));
