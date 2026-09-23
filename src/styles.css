@@ -338,3 +338,12 @@ tbody tr{transition:background .12s}tbody tr:hover{background:rgba(255,255,255,.
 .status-offer-made{color:#d7bd7f;border-color:#4b4027;background:#211c10}.status-offer-made span{background:#d8b45f}
 @media(max-width:760px){.customer-offer-grid{grid-template-columns:1fr}.offer-builder-hero{flex-direction:column;align-items:flex-start}.offer-builder-hero>div:last-child{text-align:left}.acquisition-progress{grid-template-columns:repeat(5,minmax(55px,1fr));overflow-x:auto}}
 @media(max-width:520px){.customer-offer-top,.customer-offer-modal-hero{grid-template-columns:auto 1fr}.customer-offer-top>.status,.customer-offer-modal-hero>.status{grid-column:1/-1;width:max-content}.offer-detail-grid,.customer-offer-values{grid-template-columns:1fr}.customer-offer-amount strong{font-size:26px}}
+
+
+/* Staff-assisted acquisition acceptance */
+.staff-assisted-accept{display:flex;gap:12px;align-items:center;border-bottom:1px solid #252b32;padding-bottom:13px;margin-bottom:13px}
+.staff-assisted-accept h3{font-size:16px;margin:4px 0 2px}.staff-assisted-accept p{font-size:9px;color:#727c86;margin:0}
+.staff-assisted-warning{display:flex;gap:9px;align-items:flex-start;border:1px solid #3b463d;background:#111a14;border-radius:10px;padding:10px 11px;margin-bottom:12px;color:#91c4a3}
+.staff-assisted-warning>svg{width:15px;flex:none;margin-top:1px}.staff-assisted-warning strong,.staff-assisted-warning span{display:block}.staff-assisted-warning strong{font-size:9px}.staff-assisted-warning span{font-size:8px;color:#748c7d;line-height:1.45;margin-top:2px}
+.staff-assisted-record{display:flex;gap:9px;align-items:flex-start;border:1px solid #314339;background:#101913;border-radius:10px;padding:10px 11px;margin-top:10px;color:#8dc0a0}
+.staff-assisted-record>svg{width:15px;flex:none;margin-top:1px}.staff-assisted-record strong,.staff-assisted-record span{display:block}.staff-assisted-record strong{font-size:9px}.staff-assisted-record span{font-size:8px;color:#728a7a;line-height:1.45;margin-top:2px}
