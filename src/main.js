@@ -580,9 +580,10 @@ function financeAppointmentsPage() {
   `;
 }
 
-function financeAppointmentModal() {
+function financeAppointmentModal(preselectedClient = null) {
   const staff=!!state.profile?.isStaff;
   const customers=state.data.customers || [];
+  const preselectedContact = staff && preselectedClient && !preselectedClient.customerId ? `<option value="__finance_contact__" data-name="${safe(preselectedClient.name||"Finance Customer")}" data-email="${safe(preselectedClient.email||"")}" data-uid="${safe(preselectedClient.linkedUid||"")}" selected>${safe(preselectedClient.name||"Finance Contact")} • Finance contact</option>` : "";
   modal(staff ? "Schedule Finance Appointment" : "Request Finance Appointment",`
     <form id="finance-appointment-form" class="form-grid">
       ${staff ? `<div class="field full"><label>Customer</label><select class="plain-input" id="faCustomer" required><option value="">Select customer</option>${customers.map(x=>`<option value="${x.id}" data-name="${safe(x.name||"Customer")}" data-email="${safe(x.email||"")}" data-uid="${safe(x.linkedUid||"")}">${safe(x.name||x.email||x.id)}</option>`).join("")}</select></div>` : ""}
