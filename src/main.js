@@ -861,10 +861,16 @@ function financePage() {
   const financed = state.data.financeApplications.reduce((sum,x) => sum + Number(x.amountFinanced || 0), 0);
   const clients=financeClientDirectory();
   const consultations=(state.data.financeAppointments||[]).filter(a=>["requested","confirmed","checked_in"].includes(a.status||"requested")).length;
+  const today=new Date().toISOString().slice(0,10);
+  const appointmentRequests=(state.data.financeAppointments||[]).filter(a=>(a.status||"requested")==="requested").length;
+  const packageHolds=(state.data.financeApplications||[]).filter(a=>["draft","on_hold"].includes(a.status||"")).length;
+  const followUpClients=clients.filter(client=>client.profile?.nextFollowUpDate && (client.profile?.followUpStatus||"open")!=="complete")
+    .sort((a,b)=>String(a.profile.nextFollowUpDate).localeCompare(String(b.profile.nextFollowUpDate)));
+  const dueFollowUps=followUpClients.filter(client=>String(client.profile.nextFollowUpDate)<=today).length;
 
   return `
-    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, RP payment plans, F&I packages, consultations, contracts, and final vehicle delivery.",
-      `<button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Finance Appointments</button>`)}
+    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, payment strategy, F&I packages, consultations, follow-up, contracts, and final vehicle delivery.",
+      `<button class="btn secondary" id="open-payment-lab">${icon("sliders-horizontal")} Payment Lab</button><button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Appointments</button>`)}
 
     <div class="metric-grid">
       ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
@@ -872,6 +878,25 @@ function financePage() {
       ${metric("Active Consultations", consultations, "calendar-clock", "Requested / confirmed / checked in")}
       ${metric("Amount Financed", money(financed), "circle-dollar-sign", "Fictional RP financing")}
     </div>
+
+    <div class="finance-attention-strip">
+      <button class="finance-attention-item ${appointmentRequests?"needs-attention":""}" data-page="financeAppointments"><span class="attention-icon">${icon("calendar-plus")}</span><div><small>Appointment Requests</small><strong>${appointmentRequests}</strong><span>${appointmentRequests?"Needs Finance confirmation":"Nothing waiting"}</span></div>${icon("chevron-right")}</button>
+      <div class="finance-attention-item ${packageHolds?"needs-attention":""}"><span class="attention-icon">${icon("circle-pause")}</span><div><small>Packages Needing Work</small><strong>${packageHolds}</strong><span>${packageHolds?"Draft or on hold":"No package holds"}</span></div></div>
+      <div class="finance-attention-item ${deliveries?"active-attention":""}"><span class="attention-icon">${icon("key-round")}</span><div><small>Pending Deliveries</small><strong>${deliveries}</strong><span>${deliveries?"Finance handoffs open":"Delivery queue clear"}</span></div></div>
+      <div class="finance-attention-item ${dueFollowUps?"needs-attention":""}"><span class="attention-icon">${icon("phone-call")}</span><div><small>Follow-Ups Due</small><strong>${dueFollowUps}</strong><span>${dueFollowUps?"Customer contact due":"Nothing overdue"}</span></div></div>
+    </div>
+
+    ${followUpClients.length ? `<div class="panel finance-followup-panel">
+      <div class="panel-head"><div><span class="eyebrow">NEXT ACTION</span><h2>Finance Follow-Up Queue</h2></div><span class="toolbar-count">${followUpClients.length} open</span></div>
+      <div class="finance-followup-list">
+        ${followUpClients.slice(0,8).map(client=>`<button class="finance-followup-row" data-finance-customer="${safe(client.key)}">
+          <span class="followup-date ${String(client.profile.nextFollowUpDate)<=today?"due":""}"><strong>${safe(client.profile.nextFollowUpDate)}</strong><small>${String(client.profile.nextFollowUpDate)<=today?"DUE":"UPCOMING"}</small></span>
+          <span class="followup-main"><strong>${safe(client.name)}</strong><small>${safe(client.profile.nextAction||"Finance follow-up")}</small></span>
+          <span class="followup-meta">${safe(client.profile.assignedFinanceRep||"Unassigned")}</span>
+          ${icon("chevron-right")}
+        </button>`).join("")}
+      </div>
+    </div>` : ""}
 
     <div class="panel finance-directory-panel">
       <div class="panel-head">
