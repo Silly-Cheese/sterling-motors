@@ -233,6 +233,8 @@ function dashboard() {
   const activeTestDrives = state.data.testDrives.filter(d => d.status === "active").length;
   const financeWaiting = deals.filter(d => (d.stage || "").toLowerCase() === "finance").length;
   const deliveryWaiting = deals.filter(d => (d.stage || "").toLowerCase() === "delivery").length;
+  const serviceOpen = state.data.repairOrders.filter(r => !["closed","cancelled"].includes((r.status || "").toLowerCase())).length;
+  const partsWaiting = state.data.partRequests.filter(r => ["requested","backordered"].includes((r.status || "requested").toLowerCase())).length;
 
   return `
     <div class="hero-row command-hero">
@@ -260,6 +262,8 @@ function dashboard() {
       <button class="attention-item ${activeTestDrives ? "active-attention" : ""}" data-page="sales"><span class="attention-icon">${icon("navigation")}</span><div><small>Test Drives Out</small><strong>${activeTestDrives}</strong></div><span class="attention-copy">${activeTestDrives ? "Vehicles currently out" : "No vehicles out"}</span>${icon("chevron-right")}</button>
       <button class="attention-item ${financeWaiting ? "active-attention" : ""}" data-page="finance"><span class="attention-icon">${icon("landmark")}</span><div><small>Finance Queue</small><strong>${financeWaiting}</strong></div><span class="attention-copy">${financeWaiting ? "Awaiting F&I" : "Queue is clear"}</span>${icon("chevron-right")}</button>
       <button class="attention-item ${deliveryWaiting ? "active-attention" : ""}" data-page="finance"><span class="attention-icon">${icon("key-round")}</span><div><small>Deliveries</small><strong>${deliveryWaiting}</strong></div><span class="attention-copy">${deliveryWaiting ? "Ready for handoff" : "No pending deliveries"}</span>${icon("chevron-right")}</button>
+      <button class="attention-item ${serviceOpen ? "active-attention" : ""}" data-page="service"><span class="attention-icon">${icon("wrench")}</span><div><small>Open ROs</small><strong>${serviceOpen}</strong></div><span class="attention-copy">${serviceOpen ? "Service work in progress" : "Shop is clear"}</span>${icon("chevron-right")}</button>
+      <button class="attention-item ${partsWaiting ? "needs-attention" : ""}" data-page="parts"><span class="attention-icon">${icon("package-search")}</span><div><small>Parts Requests</small><strong>${partsWaiting}</strong></div><span class="attention-copy">${partsWaiting ? "Counter action needed" : "No open requests"}</span>${icon("chevron-right")}</button>
     </div>
 
     <div class="dashboard-grid">
@@ -297,6 +301,8 @@ function dashboard() {
           ${quick("Reception Queue", "concierge-bell", "queue")}
           ${quick("Find Customer", "search", "customers")}
           ${quick("Staff Directory", "id-card", "staff")}
+          ${quick("Service Drive", "wrench", "service")}
+          ${quick("Parts Counter", "package-search", "parts")}
         </div>
       </div>
     </div>
