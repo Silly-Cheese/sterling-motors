@@ -735,21 +735,152 @@ function cancelFinanceAppointmentModal(a,staffAction=false) {
   });
 }
 
+function financeClientDirectory() {
+  const map=new Map();
+  const normalize=value=>String(value||"").trim().toLowerCase();
+
+  const ensure=(key,seed={})=>{
+    if(!map.has(key)) map.set(key,{key,customerId:"",linkedUid:"",name:"Finance Customer",email:"",phone:"",customer:null,appointments:[],applications:[],deals:[],deliveries:[],profile:null,...seed});
+    return map.get(key);
+  };
+
+  for(const customer of state.data.customers){
+    const key=`customer:${customer.id}`;
+    ensure(key,{
+      customerId:customer.id,
+      linkedUid:customer.linkedUid||"",
+      name:customer.name||customer.email||"Customer",
+      email:customer.email||"",
+      phone:customer.phone||"",
+      customer
+    });
+  }
+
+  const findKey=({customerId="",uid="",email="",name=""})=>{
+    if(customerId && map.has(`customer:${customerId}`)) return `customer:${customerId}`;
+    if(uid){
+      const match=[...map.values()].find(x=>x.linkedUid===uid);
+      if(match) return match.key;
+    }
+    if(email){
+      const match=[...map.values()].find(x=>normalize(x.email)===normalize(email));
+      if(match) return match.key;
+    }
+    if(name){
+      const match=[...map.values()].find(x=>normalize(x.name)===normalize(name));
+      if(match) return match.key;
+    }
+    if(uid) return `uid:${uid}`;
+    if(email) return `email:${normalize(email)}`;
+    return `name:${normalize(name)||"unknown"}`;
+  };
+
+  for(const appointment of state.data.financeAppointments||[]){
+    const key=findKey({customerId:appointment.customerId,uid:appointment.requesterUid,email:appointment.requesterEmail,name:appointment.requesterName});
+    const client=ensure(key,{
+      customerId:appointment.customerId||"",
+      linkedUid:appointment.requesterUid||"",
+      name:appointment.requesterName||"Finance Customer",
+      email:appointment.requesterEmail||""
+    });
+    client.appointments.push(appointment);
+  }
+
+  for(const application of state.data.financeApplications||[]){
+    const key=findKey({customerId:application.customerId,name:application.customerName});
+    const client=ensure(key,{
+      customerId:application.customerId||"",
+      name:application.customerName||"Finance Customer"
+    });
+    client.applications.push(application);
+  }
+
+  for(const deal of state.data.deals||[]){
+    const key=findKey({customerId:deal.customerId,name:deal.customerName});
+    const client=ensure(key,{
+      customerId:deal.customerId||"",
+      name:deal.customerName||"Finance Customer"
+    });
+    client.deals.push(deal);
+  }
+
+  for(const delivery of state.data.deliveries||[]){
+    const key=findKey({customerId:delivery.customerId,name:delivery.customerName});
+    const client=ensure(key,{
+      customerId:delivery.customerId||"",
+      name:delivery.customerName||"Finance Customer"
+    });
+    client.deliveries.push(delivery);
+  }
+
+  for(const profile of state.data.financeCustomerProfiles||[]){
+    const match=[...map.values()].find(x=>
+      (profile.customerId && x.customerId===profile.customerId) ||
+      (profile.linkedUid && x.linkedUid===profile.linkedUid) ||
+      (profile.email && normalize(x.email)===normalize(profile.email))
+    );
+    const client=match || ensure(`profile:${profile.id}`,{
+      customerId:profile.customerId||"",
+      linkedUid:profile.linkedUid||"",
+      name:profile.customerName||"Finance Customer",
+      email:profile.email||""
+    });
+    client.profile=profile;
+  }
+
+  return [...map.values()].sort((a,b)=>String(a.name||"").localeCompare(String(b.name||"")));
+}
+
+function financeProfileId(client) {
+  if(client.customerId) return client.customerId;
+  if(client.linkedUid) return `uid_${client.linkedUid}`;
+  return `contact_${String(client.email||client.name||client.key||"finance").replace(/[^A-Za-z0-9_-]/g,"_").slice(0,90)}`;
+}
+
 function financePage() {
   const financeDeals = state.data.deals.filter(d => ["finance","documents","delivery"].includes((d.stage || "").toLowerCase()));
-  const approved = state.data.financeApplications.filter(x => ["approved","finalized"].includes((x.status || "").toLowerCase())).length;
+  const approved = state.data.financeApplications.filter(x => ["approved","finalized","revised"].includes((x.status || "").toLowerCase())).length;
   const deliveries = state.data.deliveries.filter(x => (x.status || "").toLowerCase() !== "complete").length;
   const financed = state.data.financeApplications.reduce((sum,x) => sum + Number(x.amountFinanced || 0), 0);
+  const clients=financeClientDirectory();
+  const consultations=(state.data.financeAppointments||[]).filter(a=>["requested","confirmed","checked_in"].includes(a.status||"requested")).length;
 
   return `
-    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Build RP financing packages, protection products, contracts, and final vehicle delivery.", `<button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Finance Appointments</button>`)}
+    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, RP payment plans, F&I packages, consultations, contracts, and final vehicle delivery.",
+      `<button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Finance Appointments</button>`)}
+
     <div class="metric-grid">
       ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
-      ${metric("Approved Packages", approved, "badge-check", "Saved finance packages")}
+      ${metric("Finance Customers", clients.length, "users-round", "Searchable Finance records")}
+      ${metric("Active Consultations", consultations, "calendar-clock", "Requested / confirmed / checked in")}
       ${metric("Amount Financed", money(financed), "circle-dollar-sign", "Fictional RP financing")}
-      ${metric("Delivery Queue", deliveries, "key-round", "Vehicles awaiting handoff")}
     </div>
-    <div class="panel no-pad">
+
+    <div class="panel finance-directory-panel">
+      <div class="panel-head">
+        <div><span class="eyebrow">CUSTOMER FINANCE 360</span><h2>Finance Customer Directory</h2></div>
+        <div class="finance-directory-tools"><div class="search-box compact-search">${icon("search")}<input id="finance-customer-search" placeholder="Search name, email, customer ID, deal..."></div></div>
+      </div>
+      ${clients.length ? `<div class="table-wrap"><table class="data-table finance-customer-table">
+        <thead><tr><th>Customer</th><th>Finance Packages</th><th>Current Payment</th><th>Appointments</th><th>Finance Status</th><th></th></tr></thead>
+        <tbody id="finance-customer-rows">${clients.map(client=>{
+          const latest=[...client.applications].sort((a,b)=>(b.updatedAt?.seconds||b.createdAt?.seconds||0)-(a.updatedAt?.seconds||a.createdAt?.seconds||0))[0];
+          const openAppointments=client.appointments.filter(a=>["requested","confirmed","checked_in"].includes(a.status||"requested"));
+          const search=[client.name,client.email,client.customer?.customerNumber,...client.deals.map(d=>d.dealNumber)].filter(Boolean).join(" ").toLowerCase();
+          return `<tr data-search="${safe(search)}">
+            <td><div class="finance-customer-cell"><span class="avatar small-avatar">${initials(client.name)}</span><span><strong>${safe(client.name)}</strong><small>${safe(client.email||client.customer?.customerNumber||"Finance contact")}</small></span></div></td>
+            <td><strong>${client.applications.length}</strong><small class="block">${client.deals.length} linked deal${client.deals.length===1?"":"s"}</small></td>
+            <td><strong>${latest?.monthlyPayment?money(latest.monthlyPayment)+"/mo":"—"}</strong><small class="block">${latest?Number(latest.termMonths||0)+" mo • "+Number(latest.apr||0).toFixed(2)+"% APR":"No package"}</small></td>
+            <td><strong>${openAppointments.length}</strong><small class="block">${openAppointments[0]?safe((openAppointments[0].status||"requested").replaceAll("_"," ")):"No active appointment"}</small></td>
+            <td>${statusPill(client.profile?.financeStatus||latest?.status||"no_package")}</td>
+            <td><button class="btn secondary small" data-finance-customer="${safe(client.key)}">${icon("folder-open")} Open Finance</button></td>
+          </tr>`;
+        }).join("")}</tbody>
+      </table></div>` : emptyState("users-round","No Finance customers yet","Finance customers appear when they have a CRM record, Finance appointment, Deal Jacket, or finance package.")}
+    </div>
+
+    <div class="panel no-pad finance-queue-panel">
+      <div class="panel-head padded-head"><div><span class="eyebrow">F&I PIPELINE</span><h2>Deal Finance Queue</h2></div><span class="toolbar-count">${financeDeals.length} active</span></div>
       ${financeDeals.length ? `<div class="table-wrap"><table class="data-table">
         <thead><tr><th>Deal</th><th>Customer</th><th>Vehicle</th><th>Stage</th><th>Trade</th><th>Finance</th><th>Payment</th><th></th></tr></thead>
         <tbody>${financeDeals.map(d => {
@@ -757,10 +888,10 @@ function financePage() {
           const fin=state.data.financeApplications.find(x=>x.dealId===d.id);
           return `<tr>
             <td><strong>${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}</strong></td>
-            <td>${safe(d.customerName || "—")}</td>
+            <td><button class="text-btn" data-finance-customer-from-deal="${d.id}">${safe(d.customerName || "—")} ${icon("arrow-up-right")}</button></td>
             <td>${safe(d.vehicleName || "—")}</td>
             <td>${statusPill(d.stage || "finance")}</td>
-            <td>${trade ? money(trade.allowance) : "None"}</td>
+            <td>${trade ? money(trade.managerApprovedAllowance ?? trade.allowance) : "None"}</td>
             <td>${fin ? statusPill(fin.status || "draft") : '<span class="muted-inline">Not started</span>'}</td>
             <td><strong>${fin ? money(fin.monthlyPayment) + "/mo" : "—"}</strong></td>
             <td>${d.stage==="delivery"
@@ -770,8 +901,226 @@ function financePage() {
         }).join("")}</tbody>
       </table></div>` : emptyState("landmark", "Finance queue is clear", "Approved sales deals will arrive here automatically.")}
     </div>
-    <div class="rp-disclaimer">${icon("info")} Sterling financing data is fictional and intended only for roleplay. Do not enter real SSNs, credit reports, banking credentials, or other sensitive financial information.</div>
+
+    <div class="rp-disclaimer">${icon("info")} Sterling Finance stores fictional roleplay financing information only. Do not enter real SSNs, bank credentials, credit reports, income documents, or other sensitive financial information.</div>
   `;
+}
+
+function financeCustomerDetailModal(client) {
+  if(!client)return;
+  const profile=client.profile||{};
+  const applications=[...client.applications].sort((a,b)=>(b.updatedAt?.seconds||b.createdAt?.seconds||0)-(a.updatedAt?.seconds||a.createdAt?.seconds||0));
+  const appointments=[...client.appointments].sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  const latest=applications[0];
+  const activeAppointment=appointments.find(a=>["requested","confirmed","checked_in"].includes(a.status||"requested"));
+  const totalFinanced=applications.filter(a=>!["voided","cancelled"].includes(a.status||"")).reduce((s,a)=>s+Number(a.amountFinanced||0),0);
+  const productCount=applications.reduce((s,a)=>s+(a.products?.length||0),0);
+
+  modal(`Finance • ${safe(client.name)}`,`
+    <div class="finance-customer-hero">
+      <span class="avatar finance-customer-avatar">${initials(client.name)}</span>
+      <div><span class="eyebrow">FINANCE CUSTOMER 360</span><h3>${safe(client.name)}</h3><p>${safe(client.email||client.customer?.customerNumber||"Sterling Finance contact")}</p></div>
+      ${statusPill(profile.financeStatus||latest?.status||"no_package")}
+    </div>
+
+    <div class="finance-customer-kpis">
+      <div><span>Finance Packages</span><strong>${applications.length}</strong><small>${latest?money(latest.monthlyPayment)+"/mo latest":"No package yet"}</small></div>
+      <div><span>Total Amount Financed</span><strong>${money(totalFinanced)}</strong><small>Across recorded RP packages</small></div>
+      <div><span>F&I Products</span><strong>${productCount}</strong><small>Across finance packages</small></div>
+      <div><span>Payment Goal</span><strong>${profile.monthlyPaymentGoal?money(profile.monthlyPaymentGoal)+"/mo":activeAppointment?.monthlyGoal?money(activeAppointment.monthlyGoal)+"/mo":"—"}</strong><small>Customer preference</small></div>
+    </div>
+
+    <div class="finance-preferences-card">
+      <div class="record-section-head"><div><span class="eyebrow">FINANCE PROFILE</span><h4>Payment Preferences & Internal Notes</h4></div><button class="btn secondary small" id="edit-finance-customer-profile">${icon("pencil")} Edit</button></div>
+      <div class="finance-preferences-grid">
+        <div><span>Preferred Down Payment</span><strong>${profile.preferredDownPayment!=null?money(profile.preferredDownPayment):"Not set"}</strong></div>
+        <div><span>Preferred Term</span><strong>${profile.preferredTermMonths?profile.preferredTermMonths+" months":"Not set"}</strong></div>
+        <div><span>Monthly Goal</span><strong>${profile.monthlyPaymentGoal?money(profile.monthlyPaymentGoal)+"/mo":"Not set"}</strong></div>
+        <div><span>Finance Status</span><strong>${safe((profile.financeStatus||"not_started").replaceAll("_"," "))}</strong></div>
+      </div>
+      <div class="finance-internal-notes"><span>FINANCE-ONLY INTERNAL NOTES</span><p>${safe(profile.internalNotes||"No internal Finance notes recorded.")}</p></div>
+    </div>
+
+    <div class="finance-customer-sections">
+      <section class="finance-customer-section">
+        <div class="record-section-head"><div><span class="eyebrow">F&I</span><h4>Finance Packages</h4></div><b>${applications.length}</b></div>
+        <div class="customer-record-list">
+          ${applications.length ? applications.map(a=>`<button class="customer-record-item" data-edit-finance-application="${a.id}">
+            <span class="record-list-icon">${icon("calculator")}</span>
+            <span><strong>${safe(a.dealNumber||"Finance Package")}</strong><small>${money(a.amountFinanced)} • ${Number(a.apr||0).toFixed(2)}% • ${Number(a.termMonths||0)} mo • ${money(a.monthlyPayment)}/mo</small></span>
+            ${statusPill(a.status||"draft")}
+          </button>`).join("") : '<div class="record-list-empty">No Finance packages recorded.</div>'}
+        </div>
+      </section>
+
+      <section class="finance-customer-section">
+        <div class="record-section-head"><div><span class="eyebrow">CONSULTATIONS</span><h4>Finance Appointments</h4></div><b>${appointments.length}</b></div>
+        <div class="customer-record-list">
+          ${appointments.length ? appointments.slice(0,8).map(a=>`<button class="customer-record-item" data-finance-profile-appointment="${a.id}">
+            <span class="record-list-icon">${icon("calendar-clock")}</span>
+            <span><strong>${safe(financePurposeLabel(a.purpose))}</strong><small>${safe(a.confirmedDate||a.preferredDate||"Date pending")} ${safe(a.confirmedTime||a.preferredTime||"")} • ${safe(a.financeRepresentativeName||"Unassigned")}</small></span>
+            ${statusPill(a.status||"requested")}
+          </button>`).join("") : '<div class="record-list-empty">No Finance appointments recorded.</div>'}
+        </div>
+      </section>
+
+      <section class="finance-customer-section">
+        <div class="record-section-head"><div><span class="eyebrow">DEALS</span><h4>Linked Deal Jackets</h4></div><b>${client.deals.length}</b></div>
+        <div class="customer-record-list">
+          ${client.deals.length ? client.deals.map(d=>`<button class="customer-record-item" data-finance-profile-deal="${d.id}">
+            <span class="record-list-icon">${icon("handshake")}</span>
+            <span><strong>${safe(d.dealNumber||"Deal Jacket")}</strong><small>${safe(d.vehicleName||"Vehicle")} • ${safe((d.stage||"shopping").replaceAll("_"," "))}</small></span>
+            ${statusPill(d.stage||"shopping")}
+          </button>`).join("") : '<div class="record-list-empty">No Deal Jackets linked.</div>'}
+        </div>
+      </section>
+
+      <section class="finance-customer-section">
+        <div class="record-section-head"><div><span class="eyebrow">DELIVERY</span><h4>Finance / Delivery History</h4></div><b>${client.deliveries.length}</b></div>
+        <div class="customer-record-list">
+          ${client.deliveries.length ? client.deliveries.map(d=>`<div class="customer-record-item static-record-item">
+            <span class="record-list-icon">${icon("key-round")}</span>
+            <span><strong>${safe(d.dealNumber||"Vehicle Delivery")}</strong><small>${safe(d.vehicleName||"Vehicle")} • ${safe((d.status||"preparing").replaceAll("_"," "))}</small></span>
+            ${statusPill(d.status||"preparing")}
+          </div>`).join("") : '<div class="record-list-empty">No Finance delivery history.</div>'}
+        </div>
+      </section>
+    </div>
+
+    <div class="rp-disclaimer compact">${icon("shield-check")} Keep this record fictional. Do not store real credit reports, SSNs, banking credentials, income documents, or other sensitive financial information.</div>
+  `,`
+    <button class="btn secondary" id="finance-customer-appointment">${icon("calendar-plus")} Appointment</button>
+    <span class="modal-footer-spacer"></span>
+    ${client.customer && (can("customers.manage")||can("sales.manage"))?`<button class="btn secondary" id="open-crm-customer">${icon("user-round")} CRM Profile</button>`:""}
+    ${client.deals.some(d=>(d.stage||"")==="finance")?`<button class="btn primary" id="continue-customer-finance">${icon("calculator")} Continue F&I</button>`:""}
+  `);
+
+  document.querySelector("#edit-finance-customer-profile")?.addEventListener("click",()=>editFinanceCustomerProfileModal(client));
+  document.querySelector("#finance-customer-appointment")?.addEventListener("click",()=>financeAppointmentModal(client));
+  document.querySelector("#open-crm-customer")?.addEventListener("click",()=>customerDetailModal(client.customer));
+  document.querySelector("#continue-customer-finance")?.addEventListener("click",()=>{
+    const d=client.deals.find(x=>(x.stage||"")==="finance");
+    if(d) financeWorksheetModal(d);
+  });
+  document.querySelectorAll("[data-edit-finance-application]").forEach(btn=>btn.addEventListener("click",()=>editFinanceApplicationModal(state.data.financeApplications.find(a=>a.id===btn.dataset.editFinanceApplication))));
+  document.querySelectorAll("[data-finance-profile-appointment]").forEach(btn=>btn.addEventListener("click",()=>manageFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.financeProfileAppointment))));
+  document.querySelectorAll("[data-finance-profile-deal]").forEach(btn=>btn.addEventListener("click",()=>dealDetailModal(state.data.deals.find(d=>d.id===btn.dataset.financeProfileDeal))));
+}
+
+function editFinanceCustomerProfileModal(client) {
+  const profile=client.profile||{};
+  modal("Edit Finance Customer Profile",`
+    <form id="finance-customer-profile-form" class="form-grid">
+      <div class="field full"><label>Customer</label><input class="plain-input" value="${safe(client.name)}" disabled></div>
+      ${formField("Monthly Payment Goal","fcpMonthlyGoal",String(profile.monthlyPaymentGoal||0),"number","min='0'")}
+      ${formField("Preferred Down Payment","fcpDownPayment",String(profile.preferredDownPayment||0),"number","min='0'")}
+      <div class="field"><label>Preferred Term</label><select class="plain-input" id="fcpTerm">
+        <option value="">Not set</option>${[24,36,48,60,72,84].map(n=>`<option value="${n}" ${Number(profile.preferredTermMonths||0)===n?"selected":""}>${n} months</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Finance Relationship Status</label><select class="plain-input" id="fcpStatus">
+        ${["not_started","consulting","package_in_progress","approved","delivered","on_hold"].map(x=>`<option value="${x}" ${(profile.financeStatus||"not_started")===x?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}
+      </select></div>
+      <div class="field full"><label>Finance-Only Internal Notes</label><textarea class="plain-input textarea tall-textarea" id="fcpNotes" placeholder="RP-only notes about payment preferences, follow-up, or Finance conversations.">${safe(profile.internalNotes||"")}</textarea></div>
+    </form>
+    <div class="rp-disclaimer compact">${icon("shield-check")} Do not record real credit, banking, SSN, income, or other sensitive personal financial information.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance-customer-profile">${icon("save")} Save Finance Profile</button>`);
+
+  document.querySelector("#save-finance-customer-profile")?.addEventListener("click",async()=>{
+    const btn=document.querySelector("#save-finance-customer-profile");btn.disabled=true;
+    const data={
+      customerId:client.customerId||"",
+      linkedUid:client.linkedUid||"",
+      customerName:client.name||"",
+      email:client.email||"",
+      monthlyPaymentGoal:Number(document.querySelector("#fcpMonthlyGoal").value||0),
+      preferredDownPayment:Number(document.querySelector("#fcpDownPayment").value||0),
+      preferredTermMonths:Number(document.querySelector("#fcpTerm").value||0),
+      financeStatus:document.querySelector("#fcpStatus").value,
+      internalNotes:document.querySelector("#fcpNotes").value.trim()
+    };
+    try{
+      const id=financeProfileId(client);
+      await saveFinanceCustomerProfile(id,data,state.user);
+      await writeAudit(state.user,"finance.customer_profile_updated","financeCustomerProfile",id,{customerId:client.customerId||"",financeStatus:data.financeStatus});
+      closeModal();await refreshData();setFlash("Finance customer profile updated.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to update Finance customer profile.","error");}
+  });
+}
+
+function editFinanceApplicationModal(application) {
+  if(!application)return;
+  const deal=state.data.deals.find(d=>d.id===application.dealId);
+  const sale=Number(application.salePrice || deal?.finalPrice || deal?.counterPrice || deal?.price || 0);
+  const products=[
+    ["extended_warranty","Extended Warranty",2495],
+    ["gap","GAP Coverage",995],
+    ["maintenance","Maintenance Plan",1495],
+    ["tire_wheel","Tire & Wheel Protection",895]
+  ];
+  const selected=new Set(application.products||[]);
+
+  modal("Edit Finance Package",`
+    <div class="finance-hero"><div><span class="eyebrow">FINANCE PACKAGE • ${safe(application.dealNumber||"")}</span><h3>${safe(application.customerName||"Customer")}</h3><p>${safe(application.vehicleName||"Vehicle")}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
+    <form id="edit-finance-package-form" class="form-grid">
+      <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="editCreditTier">${["Tier 1","Tier 2","Tier 3","Tier 4"].map(x=>`<option ${application.creditTier===x?"selected":""}>${x}</option>`).join("")}</select></div>
+      ${formField("Down Payment","editDownPayment",String(application.downPayment||0),"number","required min='0'")}
+      <div class="field"><label>Trade Allowance</label><input class="plain-input" id="editTradeAllowance" type="number" min="0" value="${Number(application.tradeAllowance||0)}"></div>
+      ${formField("APR","editApr",String(application.apr||0),"number","required min='0' step='0.01'")}
+      <div class="field"><label>Term</label><select class="plain-input" id="editTermMonths">${[24,36,48,60,72,84].map(n=>`<option value="${n}" ${Number(application.termMonths||0)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
+      <div class="field"><label>Package Status</label><select class="plain-input" id="editFinanceStatus">${["draft","approved","revised","on_hold","finalized","voided"].map(x=>`<option value="${x}" ${(application.status||"approved")===x?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}</select></div>
+      <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-edit-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
+      <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="editFinanceNotes" placeholder="RP-only notes about this finance package.">${safe(application.internalNotes||"")}</textarea></div>
+    </form>
+    <div class="finance-summary">
+      <div><span>Products</span><strong id="editSumProducts">$0</strong></div>
+      <div><span>Amount Financed</span><strong id="editSumPrincipal">$0</strong></div>
+      <div class="payment-total"><span>Estimated Payment</span><strong id="editSumPayment">$0/mo</strong></div>
+    </div>
+    <div class="rp-disclaimer compact">${icon("shield-check")} Editing this record updates the existing RP Finance package only; it does not recreate delivery or re-run the Deal Jacket workflow.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-finance-package-edit">${icon("save")} Save Changes</button>`);
+
+  const calculate=()=>{
+    const productTotal=[...document.querySelectorAll("[data-edit-finance-product]:checked")].reduce((s,x)=>s+Number(x.dataset.price||0),0);
+    const down=Number(document.querySelector("#editDownPayment").value||0);
+    const trade=Number(document.querySelector("#editTradeAllowance").value||0);
+    const principal=Math.max(0,sale-down-trade+productTotal);
+    const apr=Number(document.querySelector("#editApr").value||0);
+    const term=Number(document.querySelector("#editTermMonths").value||72);
+    const payment=monthlyPayment(principal,apr,term);
+    document.querySelector("#editSumProducts").textContent=money(productTotal);
+    document.querySelector("#editSumPrincipal").textContent=money(principal);
+    document.querySelector("#editSumPayment").textContent=money(payment)+"/mo";
+    return {productTotal,down,trade,principal,apr,term,payment};
+  };
+  document.querySelectorAll("#edit-finance-package-form input,#edit-finance-package-form select").forEach(el=>el.addEventListener("input",calculate));
+  calculate();
+
+  document.querySelector("#save-finance-package-edit")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#edit-finance-package-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#save-finance-package-edit");btn.disabled=true;
+    const calc=calculate();
+    const selectedProducts=[...document.querySelectorAll("[data-edit-finance-product]:checked")].map(el=>el.dataset.editFinanceProduct);
+    const patch={
+      creditTier:document.querySelector("#editCreditTier").value,
+      downPayment:calc.down,
+      tradeAllowance:calc.trade,
+      apr:calc.apr,
+      termMonths:calc.term,
+      products:selectedProducts,
+      productTotal:calc.productTotal,
+      amountFinanced:calc.principal,
+      monthlyPayment:Number(calc.payment.toFixed(2)),
+      status:document.querySelector("#editFinanceStatus").value,
+      internalNotes:document.querySelector("#editFinanceNotes").value.trim(),
+      lastEditedBy:state.user.uid,
+      lastEditedByName:state.profile?.displayName||state.user.email
+    };
+    try{
+      await updateRecord("financeApplications",application.id,patch);
+      await writeAudit(state.user,"finance.package_edited","financeApplication",application.id,{dealId:application.dealId||"",amountFinanced:patch.amountFinanced,apr:patch.apr,termMonths:patch.termMonths,status:patch.status});
+      closeModal();await refreshData();setFlash("Finance package updated.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to update Finance package.","error");}
+  });
 }
 
 function tradeInModal(d) {
