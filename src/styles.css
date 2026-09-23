@@ -443,3 +443,9 @@ button.finance-attention-item:hover{background:#151a20;border-color:#3b434b;tran
 .modal-card:has(.customer-finance-preview-hero){width:min(880px,100%)}
 @media(max-width:860px){.target-payment-solver{grid-template-columns:1fr 1fr}.target-solver-copy{grid-column:1/-1}.customer-finance-preview-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:560px){.target-payment-solver,.customer-finance-preview-grid,.customer-finance-preview-summary{grid-template-columns:1fr}.customer-finance-preview-hero{flex-direction:column;align-items:flex-start}.preview-payment{text-align:left}.finance-primary-tools{width:100%}.finance-primary-tools>.btn{flex:1}}
+
+
+/* Finance revision history */
+.finance-revision-history{border:1px solid #2b3239;background:#0f1317;border-radius:10px;padding:10px 11px;margin:10px 0}
+.revision-list{display:flex;flex-direction:column;gap:6px}.revision-row{display:grid;grid-template-columns:auto 1fr auto;gap:9px;align-items:center;border:1px solid #242b31;background:#12171c;border-radius:8px;padding:8px 9px}.revision-number{width:34px;height:28px;border-radius:8px;background:#1b1811;border:1px solid #3d3528;color:#cbb47e;display:grid;place-items:center;font-size:7.5px;font-weight:700}.revision-row>span:nth-child(2) strong,.revision-row>span:nth-child(2) small,.revision-row>span:nth-child(3) strong,.revision-row>span:nth-child(3) small{display:block}.revision-row>span:nth-child(2) strong,.revision-row>span:nth-child(3) strong{font-size:8.5px}.revision-row small{font-size:7px;color:#66717b;margin-top:2px}.revision-row>span:nth-child(3){text-align:right}
+@media(max-width:560px){.revision-row{grid-template-columns:auto 1fr}.revision-row>span:nth-child(3){grid-column:2;text-align:left}}
