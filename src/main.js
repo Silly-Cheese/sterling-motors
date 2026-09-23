@@ -1370,7 +1370,8 @@ function financePaymentLabModal(d) {
         fAndIMenu:menuLabel,
         amountFinanced:Number(btn.dataset.principal||0),
         monthlyPayment:Number(btn.dataset.payment||0),
-        internalNotes:`Payment Lab: ${btn.dataset.label||"Selected plan"} • ${menuLabel} F&I menu • ${btn.dataset.term||72} months • ${Number(btn.dataset.apr||0).toFixed(2)}% APR • ${money(Number(btn.dataset.down||0))} down • estimated ${money(Number(btn.dataset.payment||0))}/mo.`
+        internalNotes:`Payment Lab: ${btn.dataset.label||"Selected plan"} • ${menuLabel} F&I menu • ${btn.dataset.term||72} months • ${Number(btn.dataset.apr||0).toFixed(2)}% APR • ${money(Number(btn.dataset.down||0))} down • estimated ${money(Number(btn.dataset.payment||0))}/mo.`,
+        readiness:{planSelected:true}
       };
       financeWorksheetModal(d,preset);
     }));
@@ -1400,6 +1401,63 @@ function financePaymentLabModal(d) {
   });
   document.querySelectorAll("#labCreditTier,#labApr,#labDown,#labMenu").forEach(el=>el.addEventListener("input",renderScenarios));
   renderScenarios();
+}
+
+function financePackagePreviewModal(d, snapshot) {
+  if(!d || !snapshot)return;
+  const productLabels={
+    extended_warranty:"Extended Warranty",
+    gap:"GAP Coverage",
+    maintenance:"Maintenance Plan",
+    tire_wheel:"Tire & Wheel Protection"
+  };
+  const products=(snapshot.products||[]).map(id=>productLabels[id]||id);
+  const sale=Number(d.counterPrice||d.finalPrice||d.price||0);
+
+  modal("Customer Finance Preview",`
+    <div class="customer-finance-preview-hero">
+      <div>
+        <span class="eyebrow">STERLING FINANCE • PAYMENT PRESENTATION</span>
+        <h3>${safe(d.customerName||"Customer")}</h3>
+        <p>${safe(d.vehicleName||"Vehicle")} • ${safe(d.dealNumber||"Deal")}</p>
+      </div>
+      <div class="preview-payment">
+        <span>Estimated Monthly Payment</span>
+        <strong>${money(snapshot.monthlyPayment||0)}<small>/mo</small></strong>
+      </div>
+    </div>
+
+    <div class="customer-finance-preview-grid">
+      <div><span>Vehicle Price</span><strong>${money(sale)}</strong></div>
+      <div><span>Down Payment</span><strong>${money(snapshot.downPayment||0)}</strong></div>
+      <div><span>Trade Allowance</span><strong>${money(snapshot.tradeAllowance||0)}</strong></div>
+      <div><span>Amount Financed</span><strong>${money(snapshot.amountFinanced||0)}</strong></div>
+      <div><span>Term</span><strong>${Number(snapshot.termMonths||0)} months</strong></div>
+      <div><span>APR</span><strong>${Number(snapshot.apr||0).toFixed(2)}%</strong></div>
+    </div>
+
+    <div class="customer-finance-products">
+      <div class="record-section-head"><div><span class="eyebrow">F&I SELECTIONS</span><h4>Protection & Coverage</h4></div><strong>${money(snapshot.productTotal||0)}</strong></div>
+      ${products.length ? `<div class="preview-product-list">${products.map(name=>`<span>${icon("check")} ${safe(name)}</span>`).join("")}</div>` : `<div class="preview-no-products">${icon("minus")} No optional F&I products selected.</div>`}
+    </div>
+
+    <div class="customer-finance-preview-summary">
+      <div><span>RP Credit Tier</span><strong>${safe(snapshot.creditTier||"Tier 1")}</strong></div>
+      <div><span>Payment Structure</span><strong>${Number(snapshot.termMonths||0)} mo @ ${Number(snapshot.apr||0).toFixed(2)}%</strong></div>
+      <div><span>Cash Due</span><strong>${money(snapshot.downPayment||0)}</strong></div>
+    </div>
+
+    <div class="customer-preview-disclaimer">${icon("info")} This is a fictional Sterling Motors roleplay payment presentation, not a real credit offer or lending disclosure.</div>
+  `,`
+    <button class="btn secondary" id="back-to-finance-package">${icon("arrow-left")} Back to Package</button>
+    <span class="modal-footer-spacer"></span>
+    <button class="btn primary" id="preview-select-plan">${icon("check")} Mark Plan Selected</button>
+  `);
+
+  document.querySelector("#back-to-finance-package")?.addEventListener("click",()=>financeWorksheetModal(d,snapshot));
+  document.querySelector("#preview-select-plan")?.addEventListener("click",()=>{
+    financeWorksheetModal(d,{...snapshot,readiness:{...(snapshot.readiness||{}),planSelected:true,paymentReviewed:true}});
+  });
 }
 
 function financeWorksheetModal(d, preset = null) {
@@ -1454,7 +1512,7 @@ function financeWorksheetModal(d, preset = null) {
         ["productsPresented","F&I products presented"],
         ["planSelected","Customer selected a payment plan"],
         ["figuresReviewed","Final figures reviewed before delivery"]
-      ].map(([id,label])=>`<label><input type="checkbox" data-finance-readiness="${id}" ${existing?.readiness?.[id]?"checked":""}><span>${label}</span></label>`).join("")}
+      ].map(([id,label])=>`<label><input type="checkbox" data-finance-readiness="${id}" ${(preset?.readiness?.[id] || existing?.readiness?.[id])?"checked":""}><span>${label}</span></label>`).join("")}
     </div>
 
     <div class="finance-summary">
