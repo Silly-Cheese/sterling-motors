@@ -845,26 +845,119 @@ function tradeInServiceReviewModal(trade) {
   });
 }
 
+function acquisitionVehicleServiceReviewModal(vehicle) {
+  if(!vehicle || !vehicle.sourceAcquisitionId)return;
+  const acquisition=state.data.vehicleAcquisitions.find(a=>a.id===vehicle.sourceAcquisitionId);
+  modal("Acquired Vehicle Service Review",`
+    <div class="ro-detail-hero">
+      <div class="record-icon">${icon("badge-dollar-sign")}</div>
+      <div><span class="eyebrow">STERLING-PURCHASED VEHICLE • RETAIL INSPECTION</span><h3>${safe(vehicle.year||"")} ${safe(vehicle.make||"")} ${safe(vehicle.model||"")}</h3><p>${Number(vehicle.mileage||0).toLocaleString()} mi • ${safe(vehicle.stockNumber||"Acquisition")}</p></div>
+      ${statusPill(vehicle.status||"service_review")}
+    </div>
+    <div class="record-grid">
+      <div><span>Purchase Cost</span><strong>${money(vehicle.acquisitionCost||acquisition?.offerAmount||0)}</strong></div>
+      <div><span>Seller</span><strong>${safe(acquisition?.sellerName||"Customer")}</strong></div>
+      <div><span>Submitted Condition</span><strong>${safe(acquisition?.condition||"—")}</strong></div>
+      <div><span>Appraised Condition</span><strong>${safe(acquisition?.appraisedCondition||"—")}</strong></div>
+    </div>
+    <form id="acq-service-form" class="form-grid">
+      <div class="field"><label>Mechanical</label><select class="plain-input" id="asiMechanical"><option>Pass</option><option>Repair Required</option><option>Fail - Wholesale</option></select></div>
+      <div class="field"><label>Brakes</label><select class="plain-input" id="asiBrakes"><option>Pass</option><option>Service Recommended</option><option>Repair Required</option></select></div>
+      <div class="field"><label>Tires</label><select class="plain-input" id="asiTires"><option>Pass</option><option>Replace Soon</option><option>Replacement Required</option></select></div>
+      <div class="field"><label>Safety Systems</label><select class="plain-input" id="asiSafety"><option>Pass</option><option>Repair Required</option><option>Fail</option></select></div>
+      <div class="field"><label>Warning Lights</label><select class="plain-input" id="asiLights"><option>None</option><option>Present - Diagnosed</option><option>Present - Needs Diagnosis</option></select></div>
+      <div class="field"><label>Road Test</label><select class="plain-input" id="asiRoad"><option>Pass</option><option>Concern Found</option><option>Not Roadworthy</option></select></div>
+      ${formField("Estimated Recon Cost","asiReconCost",String(vehicle.reconditioningEstimate||0),"number","required min='0'")}
+      <div class="field"><label>Retail Decision</label><select class="plain-input" id="asiDecision">
+        <option value="approve">Approve for Retail</option>
+        <option value="reconditioning">Needs Reconditioning</option>
+        <option value="wholesale">Do Not Retail / Wholesale</option>
+      </select></div>
+      <div class="field full"><label>Service Inspection Notes</label><textarea class="plain-input textarea" id="asiNotes" required placeholder="Inspection findings, required repairs, safety concerns...">${safe(vehicle.serviceReviewNotes||"")}</textarea></div>
+    </form>
+    <div class="rp-disclaimer">${icon("shield-check")} This inspection controls whether the purchased vehicle can be released to the Sterling sales floor.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-acq-service-review">${icon("clipboard-check")} Complete Review</button>`);
+
+  document.querySelector("#save-acq-service-review")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#acq-service-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#save-acq-service-review");btn.disabled=true;
+    const decision=document.querySelector("#asiDecision").value;
+    const recon=Number(document.querySelector("#asiReconCost").value||0);
+    const notes=document.querySelector("#asiNotes").value.trim();
+    const vehicleStatus=decision==="approve"?"retail_ready":decision==="reconditioning"?"reconditioning":"wholesale";
+    try{
+      await updateRecord("vehicles",vehicle.id,{
+        status:vehicleStatus,
+        serviceReviewStatus:decision,
+        serviceReviewNotes:notes,
+        reconditioningEstimate:recon,
+        serviceInspection:{
+          mechanical:document.querySelector("#asiMechanical").value,
+          brakes:document.querySelector("#asiBrakes").value,
+          tires:document.querySelector("#asiTires").value,
+          safety:document.querySelector("#asiSafety").value,
+          warningLights:document.querySelector("#asiLights").value,
+          roadTest:document.querySelector("#asiRoad").value
+        },
+        serviceReviewedBy:state.user.uid,
+        serviceReviewedByName:state.profile?.displayName||state.user.email,
+        location:decision==="approve"?"Retail Ready Holding":decision==="reconditioning"?"Service / Reconditioning":"Wholesale Hold"
+      });
+      await writeAudit(state.user,"acquisition.service_review_completed","vehicle",vehicle.id,{
+        acquisitionId:vehicle.sourceAcquisitionId,
+        decision,
+        reconditioningEstimate:recon
+      });
+      if(decision==="approve"){
+        await createNotification({
+          type:"inventory",
+          title:"Purchased vehicle approved for retail",
+          message:`${vehicle.year} ${vehicle.make} ${vehicle.model} passed Service review and can be pushed to the sales floor.`,
+          acquisitionId:vehicle.sourceAcquisitionId,
+          vehicleId:vehicle.id
+        },state.user);
+      }
+      closeModal();await refreshData();
+      setFlash(decision==="approve"?"Purchased vehicle approved for retail. It can now be pushed to the sales floor.":decision==="reconditioning"?"Purchased vehicle sent to reconditioning.":"Purchased vehicle marked wholesale / not retail eligible.");
+    }catch(e){
+      btn.disabled=false;
+      setFlash(e.message||"Unable to complete purchased-vehicle Service review.","error");
+    }
+  });
+}
+
 function pushTradeToSalesFloorModal(vehicle) {
   if(!vehicle || vehicle.status!=="retail_ready")return;
-  const trade=state.data.tradeIns.find(t=>t.id===vehicle.sourceTradeId);
-  modal("Push Trade-In to Sales Floor",`
+  const trade=vehicle.sourceTradeId ? state.data.tradeIns.find(t=>t.id===vehicle.sourceTradeId) : null;
+  const acquisition=vehicle.sourceAcquisitionId ? state.data.vehicleAcquisitions.find(a=>a.id===vehicle.sourceAcquisitionId) : null;
+  const sourceLabel=trade ? "Trade-In" : acquisition ? "Sterling-Purchased Vehicle" : "Used Vehicle";
+  const sourceCost=Number(trade?.managerApprovedAcv ?? trade?.acv ?? acquisition?.offerAmount ?? vehicle.acquisitionCost ?? 0);
+  const serviceNotes=vehicle.serviceReviewNotes || trade?.serviceReviewNotes || "Service approved this vehicle for retail sale.";
+
+  modal("Push Vehicle to Sales Floor",`
     <div class="record-hero">
       <div class="record-icon">${icon("store")}</div>
-      <div><span class="eyebrow">RETAIL RELEASE</span><h3>${safe(`${vehicle.year||""} ${vehicle.make||""} ${vehicle.model||""}`.trim())}</h3><p>Service-approved trade-in • ${safe(vehicle.stockNumber||"Stock")}</p></div>
+      <div><span class="eyebrow">RETAIL RELEASE</span><h3>${safe(`${vehicle.year||""} ${vehicle.make||""} ${vehicle.model||""}`.trim())}</h3><p>Service-approved ${sourceLabel.toLowerCase()} • ${safe(vehicle.stockNumber||"Stock")}</p></div>
       ${statusPill("service_approved")}
     </div>
+    <div class="record-grid">
+      <div><span>Source</span><strong>${sourceLabel}</strong></div>
+      <div><span>Acquisition Cost</span><strong>${money(sourceCost)}</strong></div>
+      <div><span>Recon Estimate</span><strong>${money(vehicle.reconditioningEstimate||trade?.reconditioningEstimate||0)}</strong></div>
+      <div><span>Current Location</span><strong>${safe(vehicle.location||"Retail Ready Holding")}</strong></div>
+    </div>
     <form id="sales-floor-form" class="form-grid">
-      ${formField("Retail Price","floorPrice",String(vehicle.price||trade?.acv||0),"number","required min='0'")}
-      ${formField("MSRP / List Price","floorMsrp",String(vehicle.msrp||vehicle.price||trade?.acv||0),"number","required min='0'")}
+      ${formField("Retail Price","floorPrice",String(vehicle.price||sourceCost||0),"number","required min='0'")}
+      ${formField("MSRP / List Price","floorMsrp",String(vehicle.msrp||vehicle.price||sourceCost||0),"number","required min='0'")}
       <div class="field"><label>Sales Floor Location</label><select class="plain-input" id="floorLocation"><option>Used Vehicle Showroom</option><option>Used Vehicle Lot</option><option>Featured Display</option><option>Front Line</option></select></div>
       <div class="field"><label>Retail Condition</label><select class="plain-input" id="floorCondition"><option>Retail Ready</option><option>Certified Used</option><option>As-Is Used</option></select></div>
     </form>
-    <div class="manager-note"><span>SERVICE CLEARANCE</span><p>${safe(trade?.serviceReviewNotes||"Service approved this trade-in for retail sale.")}</p></div>
+    <div class="manager-note"><span>SERVICE CLEARANCE</span><p>${safe(serviceNotes)}</p></div>
   `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-sales-floor">${icon("store")} Put on Sales Floor</button>`);
 
   document.querySelector("#confirm-sales-floor")?.addEventListener("click",async()=>{
     const form=document.querySelector("#sales-floor-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#confirm-sales-floor");btn.disabled=true;
     const price=Number(document.querySelector("#floorPrice").value||0);
     const msrp=Number(document.querySelector("#floorMsrp").value||0);
     try{
@@ -878,9 +971,18 @@ function pushTradeToSalesFloorModal(vehicle) {
         releasedByName:state.profile?.displayName||state.user.email
       });
       if(trade) await updateRecord("tradeIns",trade.id,{status:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
-      await writeAudit(state.user,"trade.pushed_to_sales_floor","vehicle",vehicle.id,{tradeInId:trade?.id||"",price});
-      closeModal();await refreshData();setFlash("Trade-in is now available on the Sterling sales floor.");
-    }catch(e){setFlash(e.message||"Unable to push trade-in to the sales floor.","error");}
+      if(acquisition) await updateRecord("vehicleAcquisitions",acquisition.id,{retailStatus:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
+      await writeAudit(state.user,"vehicle.pushed_to_sales_floor","vehicle",vehicle.id,{
+        tradeInId:trade?.id||"",
+        acquisitionId:acquisition?.id||"",
+        source:trade?"trade_in":acquisition?"acquisition":"used_vehicle",
+        price
+      });
+      closeModal();await refreshData();setFlash("Vehicle is now available on the Sterling sales floor.");
+    }catch(e){
+      btn.disabled=false;
+      setFlash(e.message||"Unable to push vehicle to the sales floor.","error");
+    }
   });
 }
 
@@ -2664,6 +2766,7 @@ function bindApp() {
   }));
   document.querySelectorAll("[data-ro]").forEach(btn => btn.addEventListener("click", () => repairOrderDetailModal(state.data.repairOrders.find(r=>r.id===btn.dataset.ro))));
   document.querySelectorAll("[data-trade-service-review]").forEach(btn => btn.addEventListener("click",()=>tradeInServiceReviewModal(state.data.tradeIns.find(t=>t.id===btn.dataset.tradeServiceReview))));
+  document.querySelectorAll("[data-acquisition-service-review]").forEach(btn => btn.addEventListener("click",()=>acquisitionVehicleServiceReviewModal(state.data.vehicles.find(v=>v.id===btn.dataset.acquisitionServiceReview))));
   document.querySelectorAll("[data-checkin-appointment]").forEach(btn => btn.addEventListener("click", () => {
     const a=state.data.serviceAppointments.find(x=>x.id===btn.dataset.checkinAppointment);
     if(a) repairOrderModal({appointmentId:a.id,customerId:a.customerId,vehicleName:a.vehicleName,complaint:a.notes});
