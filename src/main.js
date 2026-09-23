@@ -981,6 +981,11 @@ function financeCustomerDetailModal(client) {
         <div><span>Finance Status</span><strong>${safe((profile.financeStatus||"not_started").replaceAll("_"," "))}</strong></div>
       </div>
       <div class="finance-internal-notes"><span>FINANCE-ONLY INTERNAL NOTES</span><p>${safe(profile.internalNotes||"No internal Finance notes recorded.")}</p></div>
+      <div class="finance-next-action-card ${profile.nextFollowUpDate && String(profile.nextFollowUpDate)<=new Date().toISOString().slice(0,10) ? "due" : ""}">
+        <span class="finance-next-action-icon">${icon("phone-call")}</span>
+        <div><span class="eyebrow">NEXT ACTION</span><strong>${safe(profile.nextAction||"No follow-up action assigned")}</strong><small>${profile.nextFollowUpDate ? `Follow up ${safe(profile.nextFollowUpDate)}` : "No follow-up date"} • ${safe(profile.assignedFinanceRep||"Unassigned Finance rep")} • ${safe(profile.preferredContactMethod||"Any contact method")}</small></div>
+        ${profile.priority ? `<span class="priority-chip priority-${safe(profile.priority)}">${safe(profile.priority)}</span>` : ""}
+      </div>
     </div>
 
     <div class="finance-customer-sections">
@@ -1062,6 +1067,15 @@ function editFinanceCustomerProfileModal(client) {
       <div class="field"><label>Finance Relationship Status</label><select class="plain-input" id="fcpStatus">
         ${["not_started","consulting","package_in_progress","approved","delivered","on_hold"].map(x=>`<option value="${x}" ${(profile.financeStatus||"not_started")===x?"selected":""}>${x.replaceAll("_"," ")}</option>`).join("")}
       </select></div>
+      <div class="field"><label>Assigned Finance Representative</label><input class="plain-input" id="fcpRep" value="${safe(profile.assignedFinanceRep||state.profile?.displayName||state.user.email||"")}"></div>
+      <div class="field"><label>Preferred Contact Method</label><select class="plain-input" id="fcpContact">
+        ${["Any","Phone","Email","In Person"].map(x=>`<option ${(profile.preferredContactMethod||"Any")===x?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      <div class="field"><label>Priority</label><select class="plain-input" id="fcpPriority">
+        ${["normal","high","urgent"].map(x=>`<option value="${x}" ${(profile.priority||"normal")===x?"selected":""}>${x}</option>`).join("")}
+      </select></div>
+      ${formField("Next Follow-Up","fcpFollowUp",profile.nextFollowUpDate||"","date")}
+      <div class="field full"><label>Next Action</label><input class="plain-input" id="fcpNextAction" value="${safe(profile.nextAction||"")}" placeholder="Example: Call customer with 60-month option"></div>
       <div class="field full"><label>Finance-Only Internal Notes</label><textarea class="plain-input textarea tall-textarea" id="fcpNotes" placeholder="RP-only notes about payment preferences, follow-up, or Finance conversations.">${safe(profile.internalNotes||"")}</textarea></div>
     </form>
     <div class="rp-disclaimer compact">${icon("shield-check")} Do not record real credit, banking, SSN, income, or other sensitive personal financial information.</div>
@@ -1078,6 +1092,12 @@ function editFinanceCustomerProfileModal(client) {
       preferredDownPayment:Number(document.querySelector("#fcpDownPayment").value||0),
       preferredTermMonths:Number(document.querySelector("#fcpTerm").value||0),
       financeStatus:document.querySelector("#fcpStatus").value,
+      assignedFinanceRep:document.querySelector("#fcpRep").value.trim(),
+      preferredContactMethod:document.querySelector("#fcpContact").value,
+      priority:document.querySelector("#fcpPriority").value,
+      nextFollowUpDate:document.querySelector("#fcpFollowUp").value,
+      nextAction:document.querySelector("#fcpNextAction").value.trim(),
+      followUpStatus:document.querySelector("#fcpFollowUp").value ? "open" : "complete",
       internalNotes:document.querySelector("#fcpNotes").value.trim()
     };
     try{
