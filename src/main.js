@@ -549,6 +549,8 @@ function tradeInModal(d) {
   </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-trade">${icon("car")} Save Appraisal</button>`);
   document.querySelector("#save-trade")?.addEventListener("click", async () => {
     const form=document.querySelector("#trade-form"); if(!form.reportValidity()) return;
+    const saveButton=document.querySelector("#save-trade");
+    saveButton.disabled=true;
     const data={
       dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",
       year:Number(document.querySelector("#tradeYear").value),make:document.querySelector("#tradeMake").value.trim(),model:document.querySelector("#tradeModel").value.trim(),
@@ -557,11 +559,7 @@ function tradeInModal(d) {
       acv:Number(document.querySelector("#tradeAcv").value),allowance:Number(document.querySelector("#tradeAllowance").value),
       notes:document.querySelector("#tradeNotes").value.trim(),
       status:existing?.status && !["appraised","accepted"].includes(existing.status) ? existing.status : "appraised",
-      managerApprovalStatus:"not_submitted",
-      managerApprovedAcv:null,
-      managerApprovedAllowance:null,
-      managerApprovedBy:"",
-      managerApprovedByName:""
+      managerApprovalStatus:"not_submitted"
     };
     try {
       const saved=await saveTradeInForDeal(data,state.user,existing?.id || "");
@@ -569,7 +567,7 @@ function tradeInModal(d) {
       await updateRecord("deals",d.id,{tradeInId:id,tradeAllowance:data.allowance,tradeAcv:data.acv,tradeApprovalStatus:"not_submitted"});
       await writeAudit(state.user,"trade.appraised","tradeIn",id,{dealId:d.id,acv:data.acv,allowance:data.allowance});
       closeModal(); await refreshData(); setFlash("Trade-in appraisal saved. Manager approval will be required with the deal.");
-    } catch(e){setFlash(e.message || "Unable to save appraisal.","error");}
+    } catch(e){saveButton.disabled=false;setFlash(e.message || "Unable to save appraisal.","error");}
   });
 }
 
@@ -665,6 +663,7 @@ function deliveryModal(d) {
   const sync=()=>button.disabled=!checks.every(x=>x.checked);
   checks.forEach(x=>x.addEventListener("change",sync));
   button?.addEventListener("click",async()=>{
+    button.disabled=true;
     try{
       await updateRecord("deliveries",delivery.id,{status:"complete",completedBy:state.user.uid,completedByName:state.profile?.displayName || state.user.email,checklistComplete:true});
       await updateRecord("deals",d.id,{stage:"complete",deliveryStatus:"complete"});
@@ -676,7 +675,7 @@ function deliveryModal(d) {
       await createNotification({type:"delivery",title:"Vehicle delivered",message:`${d.vehicleName || "Vehicle"} was delivered to ${d.customerName || "the customer"}.`,dealId:d.id},state.user);
       await writeAudit(state.user,"delivery.completed","delivery",delivery.id,{dealId:d.id,vehicleId:d.vehicleId});
       closeModal();await refreshData();setFlash("Delivery complete. Vehicle ownership and inventory updated.");
-    }catch(e){setFlash(e.message || "Unable to complete delivery.","error");}
+    }catch(e){button.disabled=false;setFlash(e.message || "Unable to complete delivery.","error");}
   });
 }
 
@@ -1758,7 +1757,7 @@ function dealDetailModal(d) {
     ${activeDrive ? `<div class="alert-card">${icon("navigation")}<div><strong>Test drive active</strong><span>${safe(activeDrive.customerName || d.customerName)} • Start mileage ${Number(activeDrive.startMileage || 0).toLocaleString()}</span></div><button class="btn primary small" data-return-drive="${activeDrive.id}">Check In</button></div>` : ""}
     <div class="workflow-actions">
       ${can("sales.manage") && !activeDrive && vehicle && ["shopping","negotiation"].includes((d.stage || "shopping").toLowerCase()) ? `<button class="btn secondary" id="start-test-drive">${icon("key-round")} Start Test Drive</button>` : ""}
-      ${can("sales.manage") && !["delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn secondary" id="trade-in">${icon("car")} ${trade ? "Edit Trade" : "Appraise Trade"}</button>` : ""}
+      ${can("sales.manage") && ["shopping","test_drive","negotiation"].includes((d.stage || "shopping").toLowerCase()) ? `<button class="btn secondary" id="trade-in">${icon("car")} ${trade ? "Edit Trade" : "Appraise Trade"}</button>` : ""}
       ${can("finance.manage") && (d.stage || "").toLowerCase()==="finance" ? `<button class="btn secondary" id="open-finance">${icon("calculator")} Open Finance</button>` : ""}
       ${(can("finance.manage") || can("sales.manage")) && (d.stage || "").toLowerCase()==="delivery" ? `<button class="btn primary" id="open-delivery">${icon("key-round")} Delivery Checklist</button>` : ""}
       ${can("sales.manage") && !managerReview && !["finance","documents","delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn primary" id="send-desk">${icon("send")} Send to Desk</button>` : ""}
@@ -2262,14 +2261,20 @@ async function refreshData() {
         listCollection("partRequests").catch(() => []),
         listCollection("vehicleAcquisitions").catch(() => [])
       ]);
-      const uniqueTrades=[];
-      const seenTradeDeals=new Set();
+      const tradeGroups=new Map();
       for(const trade of tradeIns){
         const key=trade.dealId || trade.id;
-        if(seenTradeDeals.has(key)) continue;
-        seenTradeDeals.add(key);
-        uniqueTrades.push(trade);
+        if(!tradeGroups.has(key)) tradeGroups.set(key,[]);
+        tradeGroups.get(key).push(trade);
       }
+      const uniqueTrades=[...tradeGroups.values()].map(group=>group.sort((a,b)=>{
+        const score=x =>
+          (x.inventoryVehicleId ? 1000000000000 : 0) +
+          (x.managerApprovalStatus==="approved" ? 100000000000 : 0) +
+          (x.id===x.dealId ? 10000000000 : 0) +
+          ((x.updatedAt?.seconds || x.createdAt?.seconds || 0));
+        return score(b)-score(a);
+      })[0]);
       const preferredTradeVehicles=new Map(uniqueTrades.filter(t=>t.inventoryVehicleId).map(t=>[t.id,t.inventoryVehicleId]));
       const uniqueVehicles=[];
       const seenTradeVehicles=new Set();
