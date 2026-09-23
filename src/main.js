@@ -1610,6 +1610,11 @@ function financeWorksheetModal(d, preset = null) {
       readiness:financeReadiness(),
       revision:Number(existing?.revision||0)+1,
       lastRevisionAt:new Date().toISOString(),
+      revisionHistory:[...(Array.isArray(existing?.revisionHistory)?existing.revisionHistory:[]),{
+        revision:Number(existing?.revision||0)+1,status:"draft",apr:x.apr,termMonths:x.term,downPayment:x.down,
+        amountFinanced:x.principal,monthlyPayment:Number(x.payment.toFixed(2)),products:productsSelected,
+        editedAt:new Date().toISOString(),editedByName:state.profile?.displayName||state.user.email
+      }],
       lastEditedBy:state.user.uid,lastEditedByName:state.profile?.displayName||state.user.email
     };
     try{
@@ -1634,6 +1639,11 @@ function financeWorksheetModal(d, preset = null) {
       readiness:financeReadiness(),
       revision:Number(existing?.revision||0)+1,
       lastRevisionAt:new Date().toISOString(),
+      revisionHistory:[...(Array.isArray(existing?.revisionHistory)?existing.revisionHistory:[]),{
+        revision:Number(existing?.revision||0)+1,status:"approved",apr:x.apr,termMonths:x.term,downPayment:x.down,
+        amountFinanced:x.principal,monthlyPayment:Number(x.payment.toFixed(2)),products:productsSelected,
+        editedAt:new Date().toISOString(),editedByName:state.profile?.displayName||state.user.email
+      }],
       lastEditedBy:state.user.uid,lastEditedByName:state.profile?.displayName||state.user.email
     };
     try{
