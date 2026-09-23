@@ -40,7 +40,8 @@ import {
   startAcquisitionReview,
   sendAcquisitionOffer,
   respondToAcquisitionOffer,
-  receiveAcquisitionVehicle
+  receiveAcquisitionVehicle,
+  staffAcceptAcquisitionOffer
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -1223,7 +1224,7 @@ function acquisitionDetailModal(a) {
     <div class="workflow-actions">
       ${canManage && status==="submitted" ? `<button class="btn secondary" id="start-acquisition-review">${icon("clipboard-search")} Start Review</button><button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} Review & Make Offer</button>` : ""}
       ${canManage && ["under_review","review_requested"].includes(status) ? `<button class="btn primary" id="make-acquisition-offer">${icon("badge-dollar-sign")} ${status==="review_requested"?"Send Revised Offer":"Approve & Send Offer"}</button>` : ""}
-      ${canManage && offerOpen ? `<button class="btn secondary" id="edit-acquisition-offer">${icon("pencil")} Revise Offer</button><button class="btn danger-btn" id="withdraw-acquisition-offer">${icon("ban")} Withdraw Offer</button>` : ""}
+      ${canManage && offerOpen ? `<button class="btn success-btn" id="staff-accept-acquisition">${icon("handshake")} Accept for Seller</button><button class="btn secondary" id="edit-acquisition-offer">${icon("pencil")} Revise Offer</button><button class="btn danger-btn" id="withdraw-acquisition-offer">${icon("ban")} Withdraw Offer</button>` : ""}
       ${status==="accepted" && (can("inventory.manage")||can("acquisitions.manage")||can("admin.full")) ? `<button class="btn primary" id="receive-acquisition">${icon("warehouse")} Receive into Inventory</button>` : ""}
     </div>
   `);
@@ -1238,6 +1239,7 @@ function acquisitionDetailModal(a) {
   });
   document.querySelector("#make-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
   document.querySelector("#edit-acquisition-offer")?.addEventListener("click",()=>acquisitionOfferModal(a));
+  document.querySelector("#staff-accept-acquisition")?.addEventListener("click",()=>staffAcceptAcquisitionModal(a));
   document.querySelector("#withdraw-acquisition-offer")?.addEventListener("click",async()=>{
     const btn=document.querySelector("#withdraw-acquisition-offer");btn.disabled=true;
     try{
