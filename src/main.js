@@ -426,6 +426,7 @@ function queuePage() {
               <div class="queue-card-actions">
                 ${customer ? `<button class="btn secondary small" data-customer="${customer.id}">${icon("user-round-search")} Customer Info</button>` : ""}
                 ${status === "waiting" && canWorkQueue ? `<button class="btn secondary small" data-claim="${q.id}">${icon("hand")} Claim</button>` : ""}
+                ${status !== "complete" && can("sales.manage") ? (q.activeDealId ? `<button class="btn primary small" data-queue-deal="${q.activeDealId}">${icon("handshake")} Open Deal</button>` : `<button class="btn primary small" data-start-queue-deal="${q.id}">${icon("handshake")} Start Deal</button>`) : ""}
                 ${status !== "complete" && canWorkQueue ? `<button class="btn checkout-btn small" data-checkout="${q.id}">${icon("log-out")} Check Out</button>` : ""}
               </div>
             </article>`;
@@ -1306,7 +1307,11 @@ function dealModal(preselectedCustomerId = "") {
     try {
       const result = await createDeal(data, state.user);
       await updateRecord("vehicles", data.vehicleId, { status:"deal_pending" });
-      await writeAudit(state.user, "deal.created", "deal", result.id, { dealNumber:data.dealNumber });
+      const activeQueueEntry = state.data.queue.find(q => q.customerId === data.customerId && (q.status || "waiting") !== "complete");
+      if (activeQueueEntry) {
+        await updateRecord("queue", activeQueueEntry.id, { status:"with_staff", activeDealId:result.id, assignedUid:state.user.uid, assignedName:state.profile?.displayName || state.user.email });
+      }
+      await writeAudit(state.user, "deal.created", "deal", result.id, { dealNumber:data.dealNumber, queueEntryId:activeQueueEntry?.id || "" });
       closeModal(); await refreshData(); setFlash("Deal Jacket opened.");
     } catch (e) { setFlash(e.message || "Unable to open deal.", "error"); }
   });
@@ -2051,6 +2056,46 @@ function bindApp() {
     e.stopPropagation();
     const entry=state.data.queue.find(q=>q.id===btn.dataset.checkout);
     if(entry) checkoutCustomerModal(entry,resolveQueueCustomer(entry));
+  }));
+  document.querySelectorAll("[data-start-queue-deal]").forEach(btn => btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    const entry = state.data.queue.find(q => q.id === btn.dataset.startQueueDeal);
+    if (!entry) return;
+    try {
+      let customer = resolveQueueCustomer(entry);
+      if (!customer) {
+        const customerNumber = `SMC-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+        const created = await createCustomer({
+          name: entry.customerName || "Walk-In Customer",
+          email: entry.customerEmail || "",
+          phone: entry.customerPhone || "",
+          customerNumber,
+          source: "walk_in_conversion"
+        }, state.user);
+        await updateRecord("queue", entry.id, {
+          customerId: created.id,
+          status: "with_staff",
+          convertedFromWalkIn: true,
+          convertedBy: state.user.uid,
+          convertedByName: state.profile?.displayName || state.user.email
+        });
+        await writeAudit(state.user, "customer.walk_in_converted", "customer", created.id, { queueEntryId:entry.id, customerNumber });
+        await refreshData();
+        customer = state.data.customers.find(x => x.id === created.id);
+        setFlash(`${entry.customerName || "Walk-in"} is now a Sterling customer.`);
+      } else if ((entry.status || "waiting") !== "with_staff") {
+        await updateRecord("queue", entry.id, { status:"with_staff", assignedUid:state.user.uid, assignedName:state.profile?.displayName || state.user.email });
+        await refreshData();
+      }
+      dealModal(customer?.id || entry.customerId || "");
+    } catch (err) {
+      setFlash(err.message || "Unable to convert this walk-in and start a deal.", "error");
+    }
+  }));
+  document.querySelectorAll("[data-queue-deal]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const deal = state.data.deals.find(d => d.id === btn.dataset.queueDeal);
+    if (deal) dealDetailModal(deal);
   }));
   document.querySelectorAll("[data-finance-deal]").forEach(btn => btn.addEventListener("click", () => {
     const d=state.data.deals.find(x=>x.id===btn.dataset.financeDeal);
