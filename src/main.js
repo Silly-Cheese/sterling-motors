@@ -1232,6 +1232,13 @@ function monthlyPayment(principal, apr, months) {
   return p*r/(1-Math.pow(1+r,-n));
 }
 
+function principalForPayment(payment, apr, months) {
+  const pay=Math.max(0,Number(payment)||0), n=Math.max(1,Number(months)||1), annual=Number(apr)||0;
+  if(annual<=0) return pay*n;
+  const r=annual/100/12;
+  return pay*(1-Math.pow(1+r,-n))/r;
+}
+
 function financePaymentLabPickerModal() {
   const deals=state.data.deals.filter(d=>["finance","documents"].includes((d.stage||"").toLowerCase()));
   modal("Finance Payment Lab",`
@@ -1286,6 +1293,14 @@ function financePaymentLabModal(d) {
       </select></div>
       <div class="field"><label>Trade Allowance</label><input class="plain-input" value="${tradeAllowance}" readonly></div>
     </div>
+
+    <div class="target-payment-solver">
+      <div class="target-solver-copy"><span class="eyebrow">TARGET PAYMENT SOLVER</span><strong>Work backward from the customer's budget.</strong><small>DRIVE will estimate the down payment needed for a selected term.</small></div>
+      <div class="field"><label>Target Payment</label><input class="plain-input" id="labTargetPayment" type="number" min="0" value="${goal||0}"></div>
+      <div class="field"><label>Target Term</label><select class="plain-input" id="labTargetTerm">${[48,60,72,84].map(n=>`<option value="${n}" ${Number(profile.preferredTermMonths||72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
+      <button class="btn secondary" id="solve-target-payment">${icon("wand-sparkles")} Solve Down Payment</button>
+    </div>
+    <div class="target-payment-result hidden" id="target-payment-result"></div>
 
     <div class="payment-lab-facts">
       <span><small>Sale Price</small><strong>${money(sale)}</strong></span>
@@ -1361,6 +1376,28 @@ function financePaymentLabModal(d) {
     }));
   };
 
+  document.querySelector("#solve-target-payment")?.addEventListener("click",()=>{
+    const payment=Number(document.querySelector("#labTargetPayment").value||0);
+    const term=Number(document.querySelector("#labTargetTerm").value||72);
+    const apr=Number(document.querySelector("#labApr").value||0);
+    const menu=document.querySelector("#labMenu").value;
+    const menuProducts={base:[],protect:["gap","extended_warranty"],complete:["gap","extended_warranty","maintenance","tire_wheel"]}[menu]||[];
+    const prices={gap:995,extended_warranty:2495,maintenance:1495,tire_wheel:895};
+    const productTotal=menuProducts.reduce((sum,id)=>sum+prices[id],0);
+    const affordablePrincipal=principalForPayment(payment,apr,term);
+    const requiredDown=Math.max(0,sale-tradeAllowance+productTotal-affordablePrincipal);
+    const result=document.querySelector("#target-payment-result");
+    result.classList.remove("hidden");
+    if(!payment){
+      result.innerHTML=`${icon("triangle-alert")}<div><strong>Enter a target monthly payment.</strong><span>DRIVE needs a monthly goal before it can solve the structure.</span></div>`;
+      hydrateIcons();
+      return;
+    }
+    document.querySelector("#labDown").value=Math.ceil(requiredDown/100)*100;
+    result.innerHTML=`${icon("calculator")}<div><strong>Estimated down payment: ${money(Math.ceil(requiredDown/100)*100)}</strong><span>At ${term} months and ${apr.toFixed(2)}% APR with the selected F&I menu. Payment Lab scenarios were updated automatically.</span></div>`;
+    renderScenarios();
+    hydrateIcons();
+  });
   document.querySelectorAll("#labCreditTier,#labApr,#labDown,#labMenu").forEach(el=>el.addEventListener("input",renderScenarios));
   renderScenarios();
 }
@@ -1379,7 +1416,10 @@ function financeWorksheetModal(d, preset = null) {
   modal("Finance Worksheet", `
     <div class="finance-hero"><div><span class="eyebrow">DEAL ${safe(d.dealNumber || "")}</span><h3>${safe(d.customerName || "Customer")}</h3><p>${safe(d.vehicleName || "Vehicle")}</p></div><div><span>Sale Price</span><strong>${money(sale)}</strong></div></div>
     <div class="finance-workspace-actions">
-      <button class="btn secondary small" id="finance-payment-lab">${icon("sliders-horizontal")} Payment Lab</button>
+      <div class="finance-primary-tools">
+        <button class="btn secondary small" id="finance-payment-lab">${icon("sliders-horizontal")} Payment Lab</button>
+        <button class="btn secondary small" id="preview-finance-package">${icon("presentation")} Customer Preview</button>
+      </div>
       <div class="finance-menu-presets">
         <span>F&I Menu:</span>
         <button class="chip-btn" type="button" data-fi-menu="base">Base</button>
@@ -1396,6 +1436,27 @@ function financeWorksheetModal(d, preset = null) {
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(preset?.internalNotes || existing?.internalNotes || "")}</textarea></div>
     </form>
+    ${preset ? `<div class="payment-lab-loaded">${icon("circle-check-big")}<div><strong>${safe(preset.scenarioLabel||"Payment Lab plan")} loaded into package</strong><span>${safe(preset.creditTier||"Tier 1")} • ${safe(preset.fAndIMenu||"Custom")} menu • ${money(preset.monthlyPayment||0)}/mo scenario</span></div></div>` : ""}
+
+    <div class="deal-structure-waterfall">
+      <div class="waterfall-head"><span class="eyebrow">DEAL STRUCTURE</span><strong>How the amount financed is built</strong></div>
+      <div class="waterfall-line"><span>Vehicle sale price</span><strong>${money(sale)}</strong></div>
+      <div class="waterfall-line add"><span>F&I products</span><strong id="waterfallProducts">+$0</strong></div>
+      <div class="waterfall-line subtract"><span>Approved trade allowance</span><strong id="waterfallTrade">-$0</strong></div>
+      <div class="waterfall-line subtract"><span>Down payment</span><strong id="waterfallDown">-$0</strong></div>
+      <div class="waterfall-total"><span>Amount financed</span><strong id="waterfallPrincipal">$0</strong></div>
+    </div>
+
+    <div class="finance-readiness">
+      <div class="readiness-head"><div><span class="eyebrow">DELIVERY READINESS</span><strong>Finance review checklist</strong></div><span id="finance-readiness-count">0 / 4</span></div>
+      ${[
+        ["paymentReviewed","Payment options reviewed with customer"],
+        ["productsPresented","F&I products presented"],
+        ["planSelected","Customer selected a payment plan"],
+        ["figuresReviewed","Final figures reviewed before delivery"]
+      ].map(([id,label])=>`<label><input type="checkbox" data-finance-readiness="${id}" ${existing?.readiness?.[id]?"checked":""}><span>${label}</span></label>`).join("")}
+    </div>
+
     <div class="finance-summary">
       <div><span>Products</span><strong id="sumProducts">$0</strong></div>
       <div><span>Amount Financed</span><strong id="sumPrincipal">$0</strong></div>
@@ -1413,10 +1474,42 @@ function financeWorksheetModal(d, preset = null) {
     document.querySelector("#sumProducts").textContent=money(productTotal);
     document.querySelector("#sumPrincipal").textContent=money(principal);
     document.querySelector("#sumPayment").textContent=money(payment)+"/mo";
+    document.querySelector("#waterfallProducts").textContent="+"+money(productTotal);
+    document.querySelector("#waterfallTrade").textContent="-"+money(allowance);
+    document.querySelector("#waterfallDown").textContent="-"+money(down);
+    document.querySelector("#waterfallPrincipal").textContent=money(principal);
     return {productTotal,down,allowance,principal,apr,term,payment};
   };
   document.querySelectorAll("#finance-form input,#finance-form select").forEach(x=>x.addEventListener("input",calculate));
+  const readinessInputs=()=>[...document.querySelectorAll("[data-finance-readiness]")];
+  const financeReadiness=()=>Object.fromEntries(readinessInputs().map(x=>[x.dataset.financeReadiness,x.checked]));
+  const syncReadiness=()=>{
+    const checked=readinessInputs().filter(x=>x.checked).length;
+    const total=readinessInputs().length;
+    const count=document.querySelector("#finance-readiness-count");
+    if(count) count.textContent=`${checked} / ${total}`;
+    const finalize=document.querySelector("#save-finance");
+    if(finalize){
+      finalize.disabled=checked!==total;
+      finalize.title=checked===total?"Ready for Delivery":"Complete the Finance review checklist before Delivery";
+    }
+  };
+  readinessInputs().forEach(x=>x.addEventListener("change",syncReadiness));
+  syncReadiness();
+
   document.querySelector("#finance-payment-lab")?.addEventListener("click",()=>financePaymentLabModal(d));
+  document.querySelector("#preview-finance-package")?.addEventListener("click",()=>{
+    const x=calculate();
+    const productIds=[...document.querySelectorAll("[data-finance-product]:checked")].map(el=>el.dataset.financeProduct);
+    financePackagePreviewModal(d,{
+      creditTier:document.querySelector("#creditTier").value,
+      downPayment:x.down,tradeAllowance:x.allowance,apr:x.apr,termMonths:x.term,
+      products:productIds,productTotal:x.productTotal,amountFinanced:x.principal,
+      monthlyPayment:Number(x.payment.toFixed(2)),
+      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
+      readiness:financeReadiness()
+    });
+  });
   document.querySelectorAll("[data-fi-menu]").forEach(btn=>btn.addEventListener("click",()=>{
     const menu={
       base:[],
@@ -1438,6 +1531,9 @@ function financeWorksheetModal(d, preset = null) {
       salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
       amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"draft",
       internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
+      readiness:financeReadiness(),
+      revision:Number(existing?.revision||0)+1,
+      lastRevisionAt:new Date().toISOString(),
       lastEditedBy:state.user.uid,lastEditedByName:state.profile?.displayName||state.user.email
     };
     try{
@@ -1458,7 +1554,11 @@ function financeWorksheetModal(d, preset = null) {
       dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
       salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
       amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"approved",
-      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||""
+      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||"",
+      readiness:financeReadiness(),
+      revision:Number(existing?.revision||0)+1,
+      lastRevisionAt:new Date().toISOString(),
+      lastEditedBy:state.user.uid,lastEditedByName:state.profile?.displayName||state.user.email
     };
     try{
       let financeId=existing?.id;
