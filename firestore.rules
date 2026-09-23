@@ -54,7 +54,12 @@ service cloud.firestore {
 
     match /vehicles/{id} {
       allow read: if signedIn();
-      allow create: if permitted('inventory.manage') || permitted('sales.manage') || permitted('finance.manage') || permitted('admin.full');
+      allow create: if
+        permitted('inventory.manage') ||
+        permitted('sales.manage') ||
+        permitted('finance.manage') ||
+        permitted('admin.full') ||
+        (permitted('acquisitions.manage') && request.resource.data.sourceAcquisitionId is string);
       allow update: if
         permitted('inventory.manage') ||
         permitted('sales.manage') ||
