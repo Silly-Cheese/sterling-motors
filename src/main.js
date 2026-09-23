@@ -75,7 +75,7 @@ function can(permission) {
 }
 
 function isManager() {
-  return can("admin.full") || can("staff.manage") || can("deals.manage");
+  return can("deals.approve") || can("admin.full");
 }
 
 function setFlash(message, type = "success") {
@@ -752,7 +752,7 @@ function staffAccessModal(user = null) {
 
   const presets={
     sales:["sales.manage","customers.manage","deals.manage","queue.manage"],
-    sales_manager:["sales.manage","customers.manage","deals.manage","queue.manage","inventory.manage"],
+    sales_manager:["sales.manage","customers.manage","deals.manage","deals.approve","queue.manage","inventory.manage"],
     inventory:["inventory.manage"],
     reception:["queue.manage","customers.manage"],
     finance:["finance.manage","deals.manage"],
