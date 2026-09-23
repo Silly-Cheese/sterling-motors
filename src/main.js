@@ -1079,7 +1079,15 @@ function commandPalette() {
     ] : []),
     ...(can("inventory.manage") ? [
       {id:"new-vehicle",icon:"car-front",label:"Add Vehicle",description:"Add a vehicle to Sterling inventory",type:"Action",run:()=>{closeModal();vehicleModal();}}
-    ] : [])
+    ] : []),
+    ...(can("service.manage") ? [
+      {id:"new-ro",icon:"clipboard-plus",label:"New Repair Order",description:"Check a vehicle into DRIVE Service",type:"Action",run:()=>{closeModal();repairOrderModal();}},
+      {id:"new-appointment",icon:"calendar-plus",label:"Service Appointment",description:"Schedule a customer service visit",type:"Action",run:()=>{closeModal();serviceAppointmentModal();}}
+    ] : []),
+    ...(can("parts.manage") ? [
+      {id:"new-part",icon:"package-plus",label:"Add Part",description:"Create a Parts inventory record",type:"Action",run:()=>{closeModal();newPartModal();}}
+    ] : []),
+    {id:"sell-car",icon:"car-front",label:"Sell a Car to Sterling",description:"Submit a vehicle to Sterling Acquisitions",type:"Action",run:()=>{closeModal();acquisitionSubmissionModal();}}
   ];
 
   const renderCommands = term => {
@@ -1777,7 +1785,7 @@ async function refreshData() {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
@@ -1786,9 +1794,17 @@ async function refreshData() {
         listCollection("notifications", 50).catch(() => []),
         listCollection("tradeIns").catch(() => []),
         listCollection("financeApplications").catch(() => []),
-        listCollection("deliveries").catch(() => [])
+        listCollection("deliveries").catch(() => []),
+        listCollection("serviceAppointments").catch(() => []),
+        listCollection("repairOrders").catch(() => []),
+        listCollection("parts").catch(() => []),
+        listCollection("partRequests").catch(() => []),
+        listCollection("vehicleAcquisitions").catch(() => [])
       ]);
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions });
+    } else {
+      state.data.vehicleAcquisitions = await listVehicleAcquisitionsForUser(state.user.uid).catch(() => []);
+      Object.assign(state.data,{ deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -1815,6 +1831,22 @@ function bindApp() {
     if(!d) return;
     if((d.stage||"").toLowerCase()==="delivery") deliveryModal(d); else financeWorksheetModal(d);
   }));
+  document.querySelectorAll("[data-ro]").forEach(btn => btn.addEventListener("click", () => repairOrderDetailModal(state.data.repairOrders.find(r=>r.id===btn.dataset.ro))));
+  document.querySelectorAll("[data-checkin-appointment]").forEach(btn => btn.addEventListener("click", () => {
+    const a=state.data.serviceAppointments.find(x=>x.id===btn.dataset.checkinAppointment);
+    if(a) repairOrderModal({appointmentId:a.id,customerId:a.customerId,vehicleName:a.vehicleName,complaint:a.notes});
+  }));
+  document.querySelectorAll("[data-part]").forEach(btn => btn.addEventListener("click",()=>partDetailModal(state.data.parts.find(p=>p.id===btn.dataset.part))));
+  document.querySelectorAll("[data-fulfill-part-request]").forEach(btn => btn.addEventListener("click",()=>fulfillPartRequest(state.data.partRequests.find(r=>r.id===btn.dataset.fulfillPartRequest))));
+  document.querySelectorAll("[data-acquisition]").forEach(btn => btn.addEventListener("click",()=>acquisitionDetailModal(state.data.vehicleAcquisitions.find(a=>a.id===btn.dataset.acquisition))));
+  document.querySelectorAll("[data-acquisition-accept]").forEach(btn => btn.addEventListener("click",async()=>{
+    try{await updateRecord("vehicleAcquisitions",btn.dataset.acquisitionAccept,{status:"accepted"});await refreshData();setFlash("Offer accepted. Sterling will receive the vehicle next.");}
+    catch(e){setFlash(e.message||"Unable to accept offer.","error");}
+  }));
+  document.querySelectorAll("[data-acquisition-decline]").forEach(btn => btn.addEventListener("click",async()=>{
+    try{await updateRecord("vehicleAcquisitions",btn.dataset.acquisitionDecline,{status:"declined"});await refreshData();setFlash("Offer declined.");}
+    catch(e){setFlash(e.message||"Unable to decline offer.","error");}
+  }));
   document.querySelectorAll("[data-action]").forEach(btn => btn.addEventListener("click", () => {
     const a = btn.dataset.action;
     if (a === "new-vehicle") vehicleModal();
@@ -1823,6 +1855,10 @@ function bindApp() {
     if (a === "new-queue") queueModal();
     if (a === "manage-staff") staffAccessModal();
     if (a === "claim-bootstrap") bootstrapModal();
+    if (a === "new-service-appointment") serviceAppointmentModal();
+    if (a === "new-repair-order") repairOrderModal();
+    if (a === "new-part") newPartModal();
+    if (a === "new-acquisition") acquisitionSubmissionModal();
   }));
   document.querySelectorAll("[data-claim]").forEach(btn => btn.addEventListener("click", async () => {
     try {
@@ -1904,7 +1940,7 @@ onAuthStateChanged(auth, async (user) => {
   } else {
     state.profile = null;
     state.bootstrap = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [] };
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [] };
   }
   state.loading = false;
   state.page = "dashboard";
