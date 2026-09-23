@@ -416,3 +416,9 @@ button.finance-attention-item:hover{background:#151a20;border-color:#3b434b;tran
 @media(max-width:1180px){.finance-attention-strip{grid-template-columns:1fr 1fr}.payment-scenario-grid{grid-template-columns:1fr 1fr}}
 @media(max-width:760px){.payment-lab-controls,.payment-lab-facts{grid-template-columns:1fr 1fr}.finance-workspace-actions{align-items:flex-start;flex-direction:column}.finance-followup-row{grid-template-columns:auto 1fr auto}.followup-meta{display:none}}
 @media(max-width:560px){.finance-attention-strip,.payment-scenario-grid,.payment-lab-controls,.payment-lab-facts{grid-template-columns:1fr}.payment-lab-hero{flex-direction:column;align-items:flex-start}.payment-lab-hero>div:last-child{text-align:left}.finance-next-action-card{grid-template-columns:auto 1fr}.finance-next-action-card>.priority-chip{grid-column:1/-1;width:max-content}.finance-followup-row{grid-template-columns:1fr}.followup-date{width:auto;text-align:left}.finance-followup-row>svg{display:none}}
+
+
+/* Payment Lab package handoff */
+.payment-lab-loaded{display:flex;gap:9px;align-items:flex-start;border:1px solid #31503e;background:#101d17;border-radius:10px;padding:9px 11px;margin:0 0 10px;color:#8fd4ad}
+.payment-lab-loaded>svg{width:15px;flex:none;margin-top:1px}.payment-lab-loaded strong,.payment-lab-loaded span{display:block}.payment-lab-loaded strong{font-size:9px}.payment-lab-loaded span{font-size:7.5px;color:#758d7e;margin-top:2px}
+@media(min-width:1000px){.payment-lab-controls{grid-template-columns:repeat(5,minmax(0,1fr))}}
