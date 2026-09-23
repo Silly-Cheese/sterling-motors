@@ -128,7 +128,15 @@ service cloud.firestore {
           request.resource.data.sellerUid == request.auth.uid &&
           request.resource.data.status == 'submitted' &&
           request.resource.data.offerAmount == 0);
-      allow update: if permitted('sales.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow update: if
+        permitted('sales.manage') ||
+        permitted('inventory.manage') ||
+        permitted('admin.full') ||
+        (signedIn() &&
+          resource.data.sellerUid == request.auth.uid &&
+          resource.data.status == 'offer_made' &&
+          request.resource.data.status in ['accepted', 'declined'] &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'updatedAt']));
       allow delete: if permitted('admin.full');
     }
 
