@@ -1266,8 +1266,7 @@ function customerAcquisitionOfferModal(a) {
         <div><span>Offer Prepared By</span><strong>${safe(a.offeredByName||"Sterling Acquisitions")}</strong></div>
         <div><span>Offer Date</span><strong>${fmtDate(a.offeredAt)}</strong></div>
       </div>
-      ${a.appraisalNotes?`<div class="manager-note"><span>APPRAISAL SUMMARY</span><p>${safe(a.appraisalNotes)}</p></div>`:""}
-      ${a.offerNote?`<div class="offer-note"><span>MESSAGE FROM STERLING</span><p>${safe(a.offerNote)}</p></div>`:""}
+${a.offerNote?`<div class="offer-note"><span>MESSAGE FROM STERLING</span><p>${safe(a.offerNote)}</p></div>`:""}
       <div class="offer-decision-box">
         <span class="eyebrow">YOUR DECISION</span>
         <h4>What would you like to do with Sterling's offer?</h4>
@@ -1356,9 +1355,9 @@ function acquisitionOfferModal(a) {
         offerAmount:offer,
         appraisedCondition:document.querySelector("#acqAppraisedCondition").value,
         appraisalNotes:document.querySelector("#acqAppraisalNotes").value.trim(),
-        offerNote:document.querySelector("#acqOfferNote").value.trim()
+        offerNote:document.querySelector("#acqOfferNote").value.trim(),
+        offerRevision:revision
       },state.user);
-      await updateRecord("vehicleAcquisitions",a.id,{offerRevision:revision});
       await writeAudit(state.user,"acquisition.offer_made","vehicleAcquisition",a.id,{offerAmount:offer,offerRevision:revision});
       closeModal();await refreshData();setFlash(`Sterling purchase offer of ${money(offer)} sent to ${a.sellerName||"the seller"}.`);
     }catch(e){btn.disabled=false;setFlash(e.message||"Unable to send offer.","error");}
