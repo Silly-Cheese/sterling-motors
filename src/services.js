@@ -494,3 +494,30 @@ export async function staffAcceptAcquisitionOffer(id, actor, note = "") {
     updatedAt: serverTimestamp()
   });
 }
+
+
+export async function createFinanceAppointment(data, actor) {
+  return addDoc(collection(db, "financeAppointments"), {
+    ...data,
+    requesterUid: data.requesterUid || actor.uid,
+    requesterName: data.requesterName || actor.displayName || actor.email || "Sterling Customer",
+    requesterEmail: data.requesterEmail || actor.email || "",
+    status: data.status || "requested",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling User",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function listFinanceAppointmentsForUser(uid, max = 50) {
+  const q = query(
+    collection(db, "financeAppointments"),
+    where("requesterUid", "==", uid),
+    limit(max)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map((entry) => ({ id: entry.id, ...entry.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
+}
