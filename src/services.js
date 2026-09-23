@@ -499,7 +499,7 @@ export async function staffAcceptAcquisitionOffer(id, actor, note = "") {
 export async function createFinanceAppointment(data, actor) {
   return addDoc(collection(db, "financeAppointments"), {
     ...data,
-    requesterUid: data.requesterUid || actor.uid,
+    requesterUid: data.requesterUid ?? actor.uid,
     requesterName: data.requesterName || actor.displayName || actor.email || "Sterling Customer",
     requesterEmail: data.requesterEmail || actor.email || "",
     status: data.status || "requested",
