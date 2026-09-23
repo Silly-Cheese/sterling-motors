@@ -36,7 +36,11 @@ import {
   listVehicleAcquisitionsForUser,
   checkoutQueueEntry,
   saveTradeInForDeal,
-  receiveTradeInVehicle
+  receiveTradeInVehicle,
+  startAcquisitionReview,
+  sendAcquisitionOffer,
+  respondToAcquisitionOffer,
+  receiveAcquisitionVehicle
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -903,6 +907,11 @@ function partsPage() {
       </div>
     </div>
   `;
+}
+
+
+function canManageAcquisitions() {
+  return can("acquisitions.manage") || can("sales.manage") || can("inventory.manage") || can("admin.full");
 }
 
 function acquisitionsPage() {
@@ -1975,6 +1984,7 @@ function staffAccessModal(user = null) {
       group:"Vehicle Operations", icon:"car-front",
       items:[
         ["inventory.manage","Vehicle Inventory","Add vehicles and manage stock, pricing, and vehicle status."],
+        ["acquisitions.manage","Vehicle Acquisitions","Review vehicles customers want to sell, issue offers, and receive accepted vehicles."],
         ["service.manage","Service Operations","Manage service appointments and repair workflows."],
         ["parts.manage","Parts Operations","Manage parts inventory, requests, and fulfillment."]
       ]
@@ -1997,8 +2007,9 @@ function staffAccessModal(user = null) {
 
   const presets = {
     sales:["sales.manage","customers.manage","deals.manage","queue.manage"],
-    sales_manager:["sales.manage","customers.manage","deals.manage","deals.approve","queue.manage","inventory.manage"],
-    inventory:["inventory.manage"],
+    sales_manager:["sales.manage","customers.manage","deals.manage","deals.approve","queue.manage","inventory.manage","acquisitions.manage"],
+    acquisitions:["acquisitions.manage"],
+    inventory:["inventory.manage","acquisitions.manage"],
     reception:["queue.manage","customers.manage"],
     finance:["finance.manage"],
     service:["service.manage","customers.manage"],
@@ -2009,8 +2020,9 @@ function staffAccessModal(user = null) {
 
   const presetMeta = [
     ["sales","Sales Staff","Sales, customers, deals, and reception"],
-    ["sales_manager","Sales Manager","Sales plus desk approval and inventory"],
-    ["inventory","Inventory","Vehicle inventory only"],
+    ["sales_manager","Sales Manager","Sales plus desk approval, inventory, and acquisitions"],
+    ["acquisitions","Acquisitions","Review customer vehicles and issue Sterling offers"],
+    ["inventory","Inventory","Vehicle inventory and acquisitions"],
     ["reception","Reception","Guest queue and customer lookup"],
     ["finance","Finance","Finance, F&I, and delivery"],
     ["service","Service","Service operations and customer lookup"],
@@ -2025,6 +2037,7 @@ function staffAccessModal(user = null) {
     Service:["service_porter","service_technician","senior_technician","master_technician","service_advisor","senior_service_advisor","shop_foreman","service_manager","director_fixed_operations"],
     Parts:["parts_associate","parts_specialist","senior_parts_specialist","parts_manager"],
     Inventory:["inventory_associate","inventory_specialist","inventory_manager","vehicle_acquisition_manager"],
+    Acquisitions:["acquisition_specialist","senior_acquisition_specialist","acquisition_manager"],
     Reception:["receptionist","senior_receptionist","guest_services_supervisor"],
     Management:["department_manager","general_manager"],
     Executive:["regional_manager","director_operations","vice_president_operations","chief_operating_officer","president","dealer_principal"]
