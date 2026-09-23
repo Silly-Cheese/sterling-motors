@@ -413,6 +413,7 @@ export async function sendAcquisitionOffer(id, data, actor) {
     appraisedCondition: data.appraisedCondition || "",
     appraisalNotes: data.appraisalNotes || "",
     offerNote: data.offerNote || "",
+    offerRevision: Number(data.offerRevision || 1),
     status: "offer_made",
     customerResponse: "",
     customerResponseNote: "",
