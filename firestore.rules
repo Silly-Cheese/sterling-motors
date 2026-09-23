@@ -234,6 +234,12 @@ service cloud.firestore {
     }
 
 
+
+    match /financeCustomerProfiles/{id} {
+      allow read, create, update: if permitted('finance.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
     match /financeAppointments/{id} {
       allow read: if
         activeStaff() ||
