@@ -18,7 +18,12 @@ import {
   createDeal,
   createQueueEntry,
   updateRecord,
-  writeAudit
+  writeAudit,
+  createTestDrive,
+  completeTestDrive,
+  createNotification,
+  markNotificationRead,
+  updateUserAccess
 } from "./services";
 
 const app = document.querySelector("#app");
@@ -27,7 +32,7 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [] },
   loading: true,
   flash: null
 };
@@ -133,7 +138,7 @@ function shell(content) {
           <div class="breadcrumb"><span>Sterling Motors</span><b>/</b><strong>${safe(pageTitle())}</strong></div>
           <div class="top-actions">
             <div class="global-search">${icon("search")}<input id="global-search" placeholder="Search DRIVE..." /></div>
-            <button class="icon-btn notification-btn">${icon("bell")}<span class="notification-dot"></span></button>
+            <button class="icon-btn notification-btn" id="notifications-btn">${icon("bell")}${state.data.notifications.some(n => !n.read) ? `<span class="notification-dot"></span>` : ""}</button>
           </div>
         </header>
 
@@ -269,7 +274,7 @@ function vehicleRow(v) {
     <td>${statusPill(v.status || "available")}</td>
     <td>${Number(v.mileage || 0).toLocaleString()} mi</td>
     <td><strong>${money(v.price)}</strong><small class="block">MSRP ${money(v.msrp || v.price)}</small></td>
-    <td><button class="icon-btn">${icon("more-horizontal")}</button></td>
+    <td><button class="icon-btn" data-vehicle="${v.id}" title="Open vehicle record">${icon("arrow-up-right")}</button></td>
   </tr>`;
 }
 
@@ -287,7 +292,7 @@ function sales() {
     <div class="panel no-pad">
       ${deals.length ? `<div class="table-wrap"><table class="data-table">
         <thead><tr><th>Deal</th><th>Customer</th><th>Vehicle</th><th>Salesperson</th><th>Stage</th><th>Value</th><th>Opened</th></tr></thead>
-        <tbody>${deals.map(d => `<tr>
+        <tbody>${deals.map(d => `<tr class="clickable-row" data-deal="${d.id}">
           <td><strong>${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}</strong></td>
           <td>${safe(d.customerName || "Unassigned")}</td>
           <td>${safe(d.vehicleName || "Pending")}</td>
@@ -345,7 +350,8 @@ function queuePage() {
 function staffPage() {
   const users = state.data.users.filter(u => u.isStaff);
   return `
-    ${pageHeader("STERLING MOTOR GROUP", "Staff Directory", "Employee identity, department, status, and access across Sterling DRIVE.")}
+    ${pageHeader("STERLING MOTOR GROUP", "Staff Directory", "Employee identity, department, status, and access across Sterling DRIVE.",
+      can("staff.manage") ? `<button class="btn primary" data-action="manage-staff">${icon("user-cog")} Manage Access</button>` : "")}
     <div class="staff-grid">
       ${users.length ? users.map(u => `<article class="staff-card">
         <div class="staff-band"></div>
@@ -354,6 +360,7 @@ function staffPage() {
         <p>${safe(u.role || "Employee")}</p>
         <div class="staff-details"><span>${icon("building-2")} ${safe(u.department || "Sterling Motors")}</span><span>${icon("badge-check")} ${safe(u.employeeId || "ID pending")}</span></div>
         ${statusPill(u.status || "active")}
+        ${can("staff.manage") ? `<button class="btn secondary small staff-manage-btn" data-staff="${u.id}">${icon("settings-2")} Manage</button>` : ""}
       </article>`).join("") : emptyState("id-card", "No staff profiles found", "Staff accounts will appear here after an administrator provisions them.")}
     </div>
   `;
@@ -548,19 +555,249 @@ function queueModal() {
   });
 }
 
+
+function notificationCenter() {
+  const items = [...state.data.notifications].sort((a,b) => {
+    const av = a.createdAt?.seconds || 0, bv = b.createdAt?.seconds || 0;
+    return bv - av;
+  });
+  modal("DRIVE Notifications", items.length ? `
+    <div class="notification-list">
+      ${items.map(n => `<button class="notification-item ${n.read ? "" : "unread"}" data-notification="${n.id}">
+        <span class="notification-icon">${icon(n.type === "approval" ? "badge-check" : n.type === "test_drive" ? "car-front" : "bell")}</span>
+        <span><strong>${safe(n.title || "Sterling DRIVE")}</strong><small>${safe(n.message || "")}</small><em>${fmtDate(n.createdAt)}</em></span>
+        ${!n.read ? '<b></b>' : ""}
+      </button>`).join("")}
+    </div>` : emptyState("bell-off", "You’re all caught up", "New dealership activity will appear here."));
+  document.querySelectorAll("[data-notification]").forEach(btn => btn.addEventListener("click", async () => {
+    const item = state.data.notifications.find(n => n.id === btn.dataset.notification);
+    if (item && !item.read) {
+      try { await markNotificationRead(item.id); item.read = true; } catch {}
+    }
+    closeModal(); render();
+    if (item?.dealId) {
+      const deal = state.data.deals.find(d => d.id === item.dealId);
+      if (deal) dealDetailModal(deal);
+    }
+  }));
+}
+
+function vehicleDetailModal(v) {
+  if (!v) return;
+  const name = `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim() || "Vehicle";
+  const activeDrive = state.data.testDrives.find(t => t.vehicleId === v.id && t.status === "active");
+  const scanCode = `sterling://vehicle/${v.id}`;
+  modal(name, `
+    <div class="record-hero">
+      <div class="record-icon">${icon("car-front")}</div>
+      <div><span class="eyebrow">VEHICLE RECORD</span><h3>${safe(name)}</h3><p>${safe(v.trim || "Sterling Motors inventory")}</p></div>
+      ${statusPill(v.status || "available")}
+    </div>
+    <div class="record-grid">
+      <div><span>Stock Number</span><strong>${safe(v.stockNumber || "—")}</strong></div>
+      <div><span>VIN</span><strong>${safe(v.vin || "Pending")}</strong></div>
+      <div><span>Mileage</span><strong>${Number(v.mileage || 0).toLocaleString()} mi</strong></div>
+      <div><span>Color</span><strong>${safe(v.color || "—")}</strong></div>
+      <div><span>Selling Price</span><strong>${money(v.price)}</strong></div>
+      <div><span>MSRP</span><strong>${money(v.msrp || v.price)}</strong></div>
+    </div>
+    <div class="scan-record"><span>${icon("qr-code")}</span><div><small>STERLING SCAN ID</small><code>${safe(scanCode)}</code></div><button class="btn secondary small" id="copy-scan">Copy</button></div>
+    ${activeDrive ? `<div class="alert-card">${icon("navigation")} <div><strong>Vehicle is currently on a test drive</strong><span>${safe(activeDrive.customerName || "Customer")} • ${safe(activeDrive.startedByName || "Sterling Staff")}</span></div>${can("sales.manage") ? `<button class="btn primary small" data-return-drive="${activeDrive.id}">Return Vehicle</button>` : ""}</div>` : ""}
+  `);
+  document.querySelector("#copy-scan")?.addEventListener("click", async () => {
+    try { await navigator.clipboard.writeText(scanCode); setFlash("Vehicle scan ID copied."); } catch { setFlash(scanCode); }
+  });
+  document.querySelector("[data-return-drive]")?.addEventListener("click", () => completeTestDriveModal(activeDrive));
+}
+
+function dealDetailModal(d) {
+  if (!d) return;
+  const vehicle = state.data.vehicles.find(v => v.id === d.vehicleId);
+  const activeDrive = state.data.testDrives.find(t => t.dealId === d.id && t.status === "active");
+  const managerReview = (d.stage || "").replaceAll("_"," ").toLowerCase() === "manager review";
+  modal(`Deal ${safe(d.dealNumber || d.id.slice(0,8).toUpperCase())}`, `
+    <div class="deal-summary">
+      <div><span class="eyebrow">CUSTOMER</span><h3>${safe(d.customerName || "Unassigned")}</h3><p>${safe(d.salespersonName || "No salesperson assigned")}</p></div>
+      <div class="deal-price"><span>Current Deal</span><strong>${money(d.counterPrice || d.finalPrice || d.price || 0)}</strong>${statusPill(d.stage || "shopping")}</div>
+    </div>
+    <div class="record-grid">
+      <div><span>Vehicle</span><strong>${safe(d.vehicleName || "Pending")}</strong></div>
+      <div><span>Opening Price</span><strong>${money(d.price)}</strong></div>
+      <div><span>Manager Status</span><strong>${safe(d.approvalStatus || "Not submitted")}</strong></div>
+      <div><span>Opened</span><strong>${fmtDate(d.createdAt)}</strong></div>
+    </div>
+    ${d.managerNote ? `<div class="manager-note"><span>Manager Note</span><p>${safe(d.managerNote)}</p></div>` : ""}
+    ${activeDrive ? `<div class="alert-card">${icon("navigation")}<div><strong>Test drive active</strong><span>${safe(activeDrive.customerName || d.customerName)} • Start mileage ${Number(activeDrive.startMileage || 0).toLocaleString()}</span></div><button class="btn primary small" data-return-drive="${activeDrive.id}">Check In</button></div>` : ""}
+    <div class="workflow-actions">
+      ${can("sales.manage") && !activeDrive && vehicle && ["shopping","negotiation"].includes((d.stage || "shopping").toLowerCase()) ? `<button class="btn secondary" id="start-test-drive">${icon("key-round")} Start Test Drive</button>` : ""}
+      ${can("sales.manage") && !managerReview && !["finance","documents","delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn primary" id="send-desk">${icon("send")} Send to Desk</button>` : ""}
+      ${managerReview && isManager() ? `<button class="btn success-btn" id="approve-deal">${icon("check")} Approve to Finance</button><button class="btn secondary" id="counter-deal">${icon("message-square-more")} Counter</button><button class="btn danger-btn" id="decline-deal">${icon("x")} Decline</button>` : ""}
+    </div>
+  `);
+
+  document.querySelector("#start-test-drive")?.addEventListener("click", () => startTestDriveModal(d, vehicle));
+  document.querySelector("[data-return-drive]")?.addEventListener("click", () => completeTestDriveModal(activeDrive));
+  document.querySelector("#send-desk")?.addEventListener("click", async () => {
+    try {
+      await updateRecord("deals", d.id, { stage:"manager_review", approvalStatus:"pending" });
+      await createNotification({ type:"approval", title:"Deal approval required", message:`${d.salespersonName || "Sales"} submitted ${d.dealNumber || "a deal"} for ${d.customerName || "a customer"}.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.sent_to_desk", "deal", d.id, { dealNumber:d.dealNumber });
+      closeModal(); await refreshData(); setFlash("Deal sent to the desk for manager review.");
+    } catch (e) { setFlash(e.message || "Unable to submit deal.", "error"); }
+  });
+  document.querySelector("#approve-deal")?.addEventListener("click", async () => {
+    try {
+      await updateRecord("deals", d.id, { stage:"finance", approvalStatus:"approved", approvedBy:state.user.uid, approvedByName:state.profile?.displayName || state.user.email });
+      await createNotification({ type:"approval", title:"Deal approved", message:`${d.dealNumber || "Deal"} was approved and sent to Finance.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.approved", "deal", d.id, { dealNumber:d.dealNumber });
+      closeModal(); await refreshData(); setFlash("Deal approved and routed to Finance.");
+    } catch (e) { setFlash(e.message || "Unable to approve deal.", "error"); }
+  });
+  document.querySelector("#counter-deal")?.addEventListener("click", () => counterDealModal(d));
+  document.querySelector("#decline-deal")?.addEventListener("click", async () => {
+    try {
+      await updateRecord("deals", d.id, { stage:"negotiation", approvalStatus:"declined", managerNote:"Deal declined by management. Revise and resubmit." });
+      await createNotification({ type:"approval", title:"Deal returned to Sales", message:`${d.dealNumber || "Deal"} was declined and returned for negotiation.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.declined", "deal", d.id, {});
+      closeModal(); await refreshData(); setFlash("Deal returned to Sales.");
+    } catch (e) { setFlash(e.message || "Unable to decline deal.", "error"); }
+  });
+}
+
+function counterDealModal(d) {
+  modal("Counter Deal", `<form id="counter-form" class="form-grid">
+    ${formField("Counter Price","counterPrice",String(d.counterPrice || d.price || 0),"number","required")}
+    <div class="field full"><label>Manager Note</label><textarea class="plain-input textarea" id="managerNote" placeholder="Explain the counter or required changes..." required></textarea></div>
+  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-counter">${icon("send")} Send Counter</button>`);
+  document.querySelector("#save-counter")?.addEventListener("click", async () => {
+    const form=document.querySelector("#counter-form"); if(!form.reportValidity()) return;
+    const counterPrice=Number(document.querySelector("#counterPrice").value || 0);
+    const managerNote=document.querySelector("#managerNote").value.trim();
+    try {
+      await updateRecord("deals", d.id, { stage:"negotiation", approvalStatus:"countered", counterPrice, managerNote, counteredBy:state.user.uid });
+      await createNotification({ type:"approval", title:"Manager counter received", message:`${d.dealNumber || "Deal"} was countered at ${money(counterPrice)}.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "deal.countered", "deal", d.id, { counterPrice });
+      closeModal(); await refreshData(); setFlash("Counter sent back to Sales.");
+    } catch(e) { setFlash(e.message || "Unable to counter deal.", "error"); }
+  });
+}
+
+function startTestDriveModal(d, vehicle) {
+  const start = Number(vehicle?.mileage || 0);
+  modal("Start Test Drive", `<form id="drive-form" class="form-grid">
+    <div class="field full"><label>Customer</label><input class="plain-input" value="${safe(d.customerName || "")}" disabled></div>
+    <div class="field full"><label>Vehicle</label><input class="plain-input" value="${safe(d.vehicleName || "")}" disabled></div>
+    ${formField("Start Mileage","driveMileage",String(start),"number","required")}
+    <div class="field"><label>Fuel Level</label><select class="plain-input" id="driveFuel"><option>Full</option><option>3/4</option><option>1/2</option><option>1/4</option></select></div>
+    <div class="field full check-field"><label><input type="checkbox" id="licenseVerified" required> Driver's license verified for RP</label></div>
+  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="begin-drive">${icon("key-round")} Check Out Vehicle</button>`);
+  document.querySelector("#begin-drive")?.addEventListener("click", async () => {
+    const form=document.querySelector("#drive-form"); if(!form.reportValidity()) return;
+    try {
+      const result=await createTestDrive({
+        dealId:d.id, dealNumber:d.dealNumber || "", customerId:d.customerId || "", customerName:d.customerName || "",
+        vehicleId:d.vehicleId, vehicleName:d.vehicleName || "", startMileage:Number(document.querySelector("#driveMileage").value || start),
+        startFuel:document.querySelector("#driveFuel").value, licenseVerified:true
+      }, state.user);
+      await updateRecord("vehicles", d.vehicleId, { status:"test_drive" });
+      await updateRecord("deals", d.id, { stage:"test_drive", activeTestDriveId:result.id });
+      await createNotification({ type:"test_drive", title:"Test drive checked out", message:`${d.vehicleName} left with ${d.customerName}.`, dealId:d.id }, state.user);
+      await writeAudit(state.user, "test_drive.started", "testDrive", result.id, { dealId:d.id, vehicleId:d.vehicleId });
+      closeModal(); await refreshData(); setFlash("Test drive started. Vehicle marked OUT.");
+    } catch(e) { setFlash(e.message || "Unable to start test drive.", "error"); }
+  });
+}
+
+function completeTestDriveModal(drive) {
+  if(!drive) return;
+  modal("Return Test Drive", `<form id="return-drive-form" class="form-grid">
+    ${formField("Ending Mileage","endMileage",String(drive.startMileage || 0),"number","required")}
+    <div class="field"><label>Fuel Level</label><select class="plain-input" id="endFuel"><option>Full</option><option>3/4</option><option>1/2</option><option>1/4</option></select></div>
+    <div class="field full"><label>Return Condition</label><select class="plain-input" id="returnCondition"><option>No new damage</option><option>Damage noted — manager review</option></select></div>
+    <div class="field full"><label>Customer Interest</label><select class="plain-input" id="customerInterest"><option>Interested</option><option>Needs time</option><option>Not interested</option></select></div>
+  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="finish-drive">${icon("corner-down-left")} Check In Vehicle</button>`);
+  document.querySelector("#finish-drive")?.addEventListener("click", async () => {
+    const form=document.querySelector("#return-drive-form"); if(!form.reportValidity()) return;
+    const endMileage=Number(document.querySelector("#endMileage").value || drive.startMileage || 0);
+    try {
+      await completeTestDrive(drive.id, {
+        endMileage, endFuel:document.querySelector("#endFuel").value,
+        returnCondition:document.querySelector("#returnCondition").value,
+        customerInterest:document.querySelector("#customerInterest").value
+      }, state.user);
+      await updateRecord("vehicles", drive.vehicleId, { status:"deal_pending", mileage:endMileage });
+      await updateRecord("deals", drive.dealId, { stage:"negotiation", activeTestDriveId:null });
+      await writeAudit(state.user, "test_drive.completed", "testDrive", drive.id, { endMileage });
+      closeModal(); await refreshData(); setFlash("Vehicle checked in. Deal moved to negotiation.");
+    } catch(e) { setFlash(e.message || "Unable to complete test drive.", "error"); }
+  });
+}
+
+function staffAccessModal(user = null) {
+  const allUsers = state.data.users;
+  const selected = user || allUsers.find(u => !u.isStaff) || allUsers[0];
+  if (!selected) { setFlash("No user accounts are available yet.", "error"); return; }
+  const permissions = (selected.permissions || []).join(", ");
+  modal("Manage Employee Access", `<form id="staff-form" class="form-grid">
+    <div class="field full"><label>User Account</label><select class="plain-input" id="staffUser">${allUsers.map(u => `<option value="${u.id}" ${u.id===selected.id?"selected":""}>${safe(u.displayName || u.email || u.id)} ${u.isStaff ? "• Staff" : "• Customer"}</option>`).join("")}</select></div>
+    ${formField("Employee ID","employeeId",selected.employeeId || "SMG-0001")}
+    <div class="field"><label>Department</label><select class="plain-input" id="department">${["Sales","Finance","Service","Parts","Inventory","Reception","Management","Executive"].map(x=>`<option ${selected.department===x?"selected":""}>${x}</option>`).join("")}</select></div>
+    ${formField("Role / Position","staffRole",selected.role || "sales_consultant")}
+    <div class="field"><label>Status</label><select class="plain-input" id="staffStatus">${["active","leave","suspended","terminated"].map(x=>`<option value="${x}" ${selected.status===x?"selected":""}>${x}</option>`).join("")}</select></div>
+    <div class="field full"><label>Permission Set</label><select class="plain-input" id="permissionPreset">
+      <option value="sales">Sales Staff</option><option value="sales_manager">Sales Manager</option><option value="inventory">Inventory</option><option value="reception">Reception</option><option value="finance">Finance</option><option value="service">Service</option><option value="staff_manager">Staff Manager</option><option value="admin">Full Administrator</option><option value="custom">Custom / Existing</option>
+    </select></div>
+    <div class="field full"><label>Permissions</label><textarea class="plain-input textarea" id="staffPermissions" placeholder="sales.manage, customers.manage">${safe(permissions)}</textarea></div>
+  </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-staff">${icon("shield-check")} Save Access</button>`);
+
+  const presets={
+    sales:["sales.manage","customers.manage","deals.manage","queue.manage"],
+    sales_manager:["sales.manage","customers.manage","deals.manage","queue.manage","inventory.manage"],
+    inventory:["inventory.manage"],
+    reception:["queue.manage","customers.manage"],
+    finance:["finance.manage","deals.manage"],
+    service:["service.manage","customers.manage"],
+    staff_manager:["staff.manage","audit.view"],
+    admin:["*"]
+  };
+  const selector=document.querySelector("#staffUser");
+  selector?.addEventListener("change", () => {
+    closeModal(); staffAccessModal(allUsers.find(u=>u.id===selector.value));
+  });
+  document.querySelector("#permissionPreset")?.addEventListener("change", e => {
+    if(e.target.value !== "custom") document.querySelector("#staffPermissions").value=(presets[e.target.value] || []).join(", ");
+  });
+  document.querySelector("#save-staff")?.addEventListener("click", async () => {
+    const uid=document.querySelector("#staffUser").value;
+    const target=allUsers.find(u=>u.id===uid);
+    const perms=document.querySelector("#staffPermissions").value.split(",").map(x=>x.trim()).filter(Boolean);
+    try {
+      await updateUserAccess(uid,{
+        isStaff:true, employeeId:document.querySelector("#employeeId").value.trim(),
+        department:document.querySelector("#department").value, role:document.querySelector("#staffRole").value.trim(),
+        status:document.querySelector("#staffStatus").value, permissions:perms
+      });
+      await writeAudit(state.user,"staff.access_updated","user",uid,{ employeeId:document.querySelector("#employeeId").value.trim(), role:document.querySelector("#staffRole").value.trim() });
+      closeModal(); await refreshData(); setFlash(`Access updated for ${target?.displayName || target?.email || "employee"}.`);
+    } catch(e) { setFlash(e.message || "Unable to update staff access.", "error"); }
+  });
+}
+
 async function refreshData() {
   if (!state.user || !state.profile) return;
   try {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
-        listUsers().catch(() => [])
+        listUsers().catch(() => []),
+        listCollection("testDrives").catch(() => []),
+        listCollection("notifications", 50).catch(() => [])
       ]);
-      Object.assign(state.data, { deals, customers, queue, users });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -573,12 +810,20 @@ function bindApp() {
   }));
   document.querySelector("#signout")?.addEventListener("click", () => signOut(auth));
   document.querySelector("#mobile-menu")?.addEventListener("click", () => document.querySelector(".sidebar")?.classList.toggle("open"));
+  document.querySelector("#notifications-btn")?.addEventListener("click", notificationCenter);
+  document.querySelectorAll("[data-vehicle]").forEach(btn => btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    vehicleDetailModal(state.data.vehicles.find(v => v.id === btn.dataset.vehicle));
+  }));
+  document.querySelectorAll("[data-deal]").forEach(row => row.addEventListener("click", () => dealDetailModal(state.data.deals.find(d => d.id === row.dataset.deal))));
+  document.querySelectorAll("[data-staff]").forEach(btn => btn.addEventListener("click", () => staffAccessModal(state.data.users.find(u => u.id === btn.dataset.staff))));
   document.querySelectorAll("[data-action]").forEach(btn => btn.addEventListener("click", () => {
     const a = btn.dataset.action;
     if (a === "new-vehicle") vehicleModal();
     if (a === "new-customer") customerModal();
     if (a === "new-deal") dealModal();
     if (a === "new-queue") queueModal();
+    if (a === "manage-staff") staffAccessModal();
   }));
   document.querySelectorAll("[data-claim]").forEach(btn => btn.addEventListener("click", async () => {
     try {
@@ -658,7 +903,7 @@ onAuthStateChanged(auth, async (user) => {
     }
   } else {
     state.profile = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [] };
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [] };
   }
   state.loading = false;
   state.page = "dashboard";
