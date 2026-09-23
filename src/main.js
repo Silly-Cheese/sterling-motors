@@ -1133,6 +1133,7 @@ function editFinanceApplicationModal(application) {
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-edit-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
       <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="editFinanceNotes" placeholder="RP-only notes about this finance package.">${safe(application.internalNotes||"")}</textarea></div>
     </form>
+    ${preset ? `<div class="payment-lab-loaded">${icon("circle-check-big")}<div><strong>${safe(preset.scenarioLabel||"Payment Lab plan")} loaded</strong><span>${safe(preset.creditTier||"Tier 1")} • ${safe(preset.fAndIMenu||"Custom")} F&I menu • all package fields populated</span></div></div>` : ""}
     <div class="finance-summary">
       <div><span>Products</span><strong id="editSumProducts">$0</strong></div>
       <div><span>Amount Financed</span><strong id="editSumPrincipal">$0</strong></div>
@@ -1260,8 +1261,10 @@ function financePaymentLabModal(d) {
   const profile=client?.profile||{};
   const sale=Number(d.counterPrice||d.finalPrice||d.price||0);
   const tradeAllowance=Number(trade?.managerApprovedAllowance ?? trade?.allowance ?? d.tradeAllowance ?? 0);
-  const startingDown=Number(profile.preferredDownPayment||0);
-  const startingApr=6.49;
+  const existing=state.data.financeApplications.find(x=>x.dealId===d.id);
+  const startingDown=Number(profile.preferredDownPayment ?? existing?.downPayment ?? 0);
+  const startingApr=Number(existing?.apr ?? 6.49);
+  const startingCreditTier=existing?.creditTier || "Tier 1";
   const goal=Number(profile.monthlyPaymentGoal||client?.appointments?.find(a=>a.monthlyGoal)?.monthlyGoal||0);
 
   modal("Finance Payment Lab",`
@@ -1271,6 +1274,9 @@ function financePaymentLabModal(d) {
     </div>
 
     <div class="payment-lab-controls">
+      <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="labCreditTier">
+        ${["Tier 1","Tier 2","Tier 3","Tier 4"].map(x=>`<option ${x===startingCreditTier?"selected":""}>${x}</option>`).join("")}
+      </select></div>
       <div class="field"><label>Base APR</label><input class="plain-input" id="labApr" type="number" min="0" step="0.01" value="${startingApr}"></div>
       <div class="field"><label>Preferred Down Payment</label><input class="plain-input" id="labDown" type="number" min="0" value="${startingDown}"></div>
       <div class="field"><label>F&I Menu</label><select class="plain-input" id="labMenu">
@@ -1294,6 +1300,7 @@ function financePaymentLabModal(d) {
   `);
 
   const renderScenarios=()=>{
+    const creditTier=document.querySelector("#labCreditTier").value;
     const apr=Number(document.querySelector("#labApr").value||0);
     const preferredDown=Number(document.querySelector("#labDown").value||0);
     const menu=document.querySelector("#labMenu").value;
@@ -1326,22 +1333,35 @@ function financePaymentLabModal(d) {
           <span><small>Financed</small><strong>${money(principal)}</strong></span>
         </div>
         ${goal?`<div class="goal-delta ${delta<=0?"good":"high"}">${delta<=0?icon("circle-check-big"):icon("triangle-alert")} ${delta<=0?`${money(Math.abs(delta))}/mo under goal`:`${money(delta)}/mo over goal`}</div>`:""}
-        <button class="btn ${goal && payment<=goal?"primary":"secondary"}" data-use-payment-plan="${s.id}" data-down="${s.down}" data-term="${s.term}" data-apr="${apr}" data-products="${menuProducts.join(",")}">${icon("arrow-right")} Use This Plan</button>
+        <button class="btn ${goal && payment<=goal?"primary":"secondary"}" data-use-payment-plan="${s.id}" data-label="${safe(s.label)}" data-down="${s.down}" data-term="${s.term}" data-apr="${apr}" data-credit-tier="${safe(creditTier)}" data-menu="${menu}" data-products="${menuProducts.join(",")}" data-payment="${payment.toFixed(2)}" data-principal="${principal.toFixed(2)}">${icon("arrow-right")} Use This Plan</button>
       </article>`;
     }).join("");
     hydrateIcons();
     grid.querySelectorAll("[data-use-payment-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+      const menuLabel={
+        base:"Base",
+        protect:"Protect",
+        complete:"Complete"
+      }[btn.dataset.menu] || "Custom";
       const preset={
+        scenarioId:btn.dataset.usePaymentPlan,
+        scenarioLabel:btn.dataset.label||"Payment Lab Plan",
+        creditTier:btn.dataset.creditTier||"Tier 1",
         downPayment:Number(btn.dataset.down||0),
+        tradeAllowance,
         termMonths:Number(btn.dataset.term||72),
         apr:Number(btn.dataset.apr||0),
-        products:(btn.dataset.products||"").split(",").filter(Boolean)
+        products:(btn.dataset.products||"").split(",").filter(Boolean),
+        fAndIMenu:menuLabel,
+        amountFinanced:Number(btn.dataset.principal||0),
+        monthlyPayment:Number(btn.dataset.payment||0),
+        internalNotes:`Payment Lab: ${btn.dataset.label||"Selected plan"} • ${menuLabel} F&I menu • ${btn.dataset.term||72} months • ${Number(btn.dataset.apr||0).toFixed(2)}% APR • ${money(Number(btn.dataset.down||0))} down • estimated ${money(Number(btn.dataset.payment||0))}/mo.`
       };
       financeWorksheetModal(d,preset);
     }));
   };
 
-  document.querySelectorAll("#labApr,#labDown,#labMenu").forEach(el=>el.addEventListener("input",renderScenarios));
+  document.querySelectorAll("#labCreditTier,#labApr,#labDown,#labMenu").forEach(el=>el.addEventListener("input",renderScenarios));
   renderScenarios();
 }
 
@@ -1368,13 +1388,13 @@ function financeWorksheetModal(d, preset = null) {
       </div>
     </div>
     <form id="finance-form" class="form-grid">
-      <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="creditTier"><option>Tier 1</option><option>Tier 2</option><option>Tier 3</option><option>Tier 4</option></select></div>
+      <div class="field"><label>RP Credit Tier</label><select class="plain-input" id="creditTier">${["Tier 1","Tier 2","Tier 3","Tier 4"].map(x=>`<option ${x===(preset?.creditTier || existing?.creditTier || "Tier 1")?"selected":""}>${x}</option>`).join("")}</select></div>
       ${formField("Down Payment","downPayment",String(preset?.downPayment ?? existing?.downPayment ?? 0),"number","required min='0'")}
       <div class="field"><label>Manager-Approved Trade Allowance</label><input class="plain-input" id="financeTrade" type="number" value="${Number(existing?.tradeAllowance ?? trade?.managerApprovedAllowance ?? d.tradeAllowance ?? 0)}" readonly></div>
       ${formField("APR","apr",String(preset?.apr ?? existing?.apr ?? 6.49),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(preset?.termMonths ?? existing?.termMonths ?? 72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
-      <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(existing?.internalNotes||"")}</textarea></div>
+      <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(preset?.internalNotes || existing?.internalNotes || "")}</textarea></div>
     </form>
     <div class="finance-summary">
       <div><span>Products</span><strong id="sumProducts">$0</strong></div>
