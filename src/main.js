@@ -1273,7 +1273,7 @@ function customerModal() {
   });
 }
 
-function dealModal() {
+function dealModal(preselectedCustomerId = "") {
   const customerOpts = state.data.customers.map(c => `<option value="${c.id}" data-name="${safe(c.name)}">${safe(c.name || c.id)}</option>`).join("");
   const vehicleOpts = state.data.vehicles.filter(v => (v.status || "available") === "available").map(v => {
     const name = `${v.year || ""} ${v.make || ""} ${v.model || ""}`.trim();
@@ -1286,6 +1286,8 @@ function dealModal() {
     ${formField("Opening Price","dealPrice","0","number")}
   </form>`, `<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-deal">${icon("handshake")} Open Deal</button>`);
 
+  const customerSelect = document.querySelector("#dealCustomer");
+  if (preselectedCustomerId && customerSelect) customerSelect.value = preselectedCustomerId;
   const vehicle = document.querySelector("#dealVehicle");
   vehicle.addEventListener("change", () => {
     document.querySelector("#dealPrice").value = vehicle.selectedOptions[0]?.dataset.price || "";
@@ -1344,13 +1346,187 @@ function queueModal() {
     try {
       const result = await createQueueEntry(data, state.user);
       await writeAudit(state.user, "queue.created", "queue", result.id, {customerId:data.customerId,customerName:data.customerName,reason:data.reason});
-      closeModal(); await refreshData(); setFlash("${safe(data.customerName)} checked into reception.");
+      closeModal(); await refreshData(); setFlash(`${data.customerName} checked into reception.`);
     } catch (e) { setFlash(e.message || "Unable to check in customer.", "error"); }
   });
 }
 
 
-function notificationCenter() {
+funct
+
+function resolveQueueCustomer(q) {
+  return state.data.customers.find(c =>
+    (q?.customerId && c.id === q.customerId) ||
+    (!q?.customerId && c.name && q?.customerName && c.name.trim().toLowerCase() === q.customerName.trim().toLowerCase())
+  );
+}
+
+function customerDetailModal(customer) {
+  if(!customer) return;
+  const sameName = value => value && customer.name && String(value).trim().toLowerCase() === customer.name.trim().toLowerCase();
+  const deals=state.data.deals.filter(d => d.customerId===customer.id || (!d.customerId && sameName(d.customerName)));
+  const vehicles=state.data.vehicles.filter(v => v.ownerCustomerId===customer.id || (!v.ownerCustomerId && sameName(v.ownerCustomerName)));
+  const ros=state.data.repairOrders.filter(r => r.customerId===customer.id || (!r.customerId && sameName(r.customerName)));
+  const appointments=state.data.serviceAppointments.filter(a => a.customerId===customer.id || (!a.customerId && sameName(a.customerName)));
+  const acquisitions=state.data.vehicleAcquisitions.filter(a =>
+    (customer.linkedUid && a.sellerUid===customer.linkedUid) ||
+    (customer.email && a.sellerEmail && a.sellerEmail.toLowerCase()===customer.email.toLowerCase()) ||
+    sameName(a.sellerName)
+  );
+  const visits=state.data.queue.filter(q => q.customerId===customer.id || (!q.customerId && sameName(q.customerName)));
+  const activeVisit=visits.find(q => (q.status||"waiting")!=="complete");
+  const completedDeals=deals.filter(d => (d.stage||"").toLowerCase()==="complete");
+  const lifetimeSales=completedDeals.reduce((sum,d)=>sum+Number(d.finalPrice||d.price||0),0);
+
+  const timeline=[
+    ...deals.map(d=>({type:"deal",date:d.createdAt,title:`Deal ${d.dealNumber||""}`,detail:`${d.vehicleName||"Vehicle"} • ${(d.stage||"shopping").replaceAll("_"," ")}`,ref:d})),
+    ...ros.map(r=>({type:"service",date:r.createdAt,title:r.roNumber||"Repair Order",detail:`${r.vehicleName||"Vehicle"} • ${(r.status||"checked_in").replaceAll("_"," ")}`,ref:r})),
+    ...visits.map(v=>({type:"visit",date:v.createdAt,title:v.reason||"Dealership Visit",detail:`${v.ticket||"Guest"} • ${(v.status||"waiting").replaceAll("_"," ")}`,ref:v}))
+  ].sort((a,b)=>(b.date?.seconds||0)-(a.date?.seconds||0)).slice(0,8);
+
+  modal(`Customer • ${safe(customer.name||"Profile")}`,`
+    <div class="customer-profile-hero">
+      <span class="avatar customer-profile-avatar">${initials(customer.name||customer.email||"Customer")}</span>
+      <div class="customer-profile-title">
+        <span class="eyebrow">CUSTOMER RECORD</span>
+        <h3>${safe(customer.name||"Customer")}</h3>
+        <p>${safe(customer.customerNumber||customer.id.slice(0,8).toUpperCase())} • Customer since ${fmtDate(customer.createdAt)}</p>
+      </div>
+      ${statusPill(customer.status||"active")}
+    </div>
+
+    ${activeVisit ? `<div class="active-customer-visit">
+      <span class="active-visit-icon">${icon("map-pin-check")}</span>
+      <div><span class="eyebrow">CURRENTLY CHECKED IN</span><strong>${safe(activeVisit.reason||"Dealership Visit")}</strong><small>${safe(activeVisit.ticket||"Guest")} • ${safe((activeVisit.status||"waiting").replaceAll("_"," "))}</small></div>
+      ${(can("queue.manage")||can("sales.manage")||can("service.manage")) ? `<button class="btn checkout-btn small" data-checkout="${activeVisit.id}">${icon("log-out")} Check Out</button>` : ""}
+    </div>` : ""}
+
+    <div class="customer-profile-contact">
+      <div>${icon("mail")}<span><small>Email</small><strong>${safe(customer.email||"Not provided")}</strong></span></div>
+      <div>${icon("phone")}<span><small>Phone</small><strong>${safe(customer.phone||"Not provided")}</strong></span></div>
+      <div>${icon("badge-check")}<span><small>Customer ID</small><strong>${safe(customer.customerNumber||customer.id.slice(0,8).toUpperCase())}</strong></span></div>
+    </div>
+
+    <div class="customer-stat-grid">
+      <div><span>Deals</span><strong>${deals.length}</strong><small>${completedDeals.length} completed</small></div>
+      <div><span>Vehicles Owned</span><strong>${vehicles.length}</strong><small>Purchased through Sterling</small></div>
+      <div><span>Service ROs</span><strong>${ros.length}</strong><small>${appointments.length} appointments</small></div>
+      <div><span>Purchase History</span><strong>${money(lifetimeSales)}</strong><small>Completed deal value</small></div>
+    </div>
+
+    <div class="customer-record-grid">
+      <section class="customer-record-section">
+        <div class="record-section-head"><div><span class="eyebrow">GARAGE</span><h4>Vehicles</h4></div><b>${vehicles.length}</b></div>
+        <div class="customer-record-list">
+          ${vehicles.length ? vehicles.map(v=>`<button class="customer-record-item" data-customer-vehicle="${v.id}"><span class="record-list-icon">${icon("car-front")}</span><span><strong>${safe(`${v.year||""} ${v.make||""} ${v.model||""}`.trim()||"Vehicle")}</strong><small>${safe(v.vin||"VIN pending")} • ${Number(v.mileage||0).toLocaleString()} mi</small></span>${icon("chevron-right")}</button>`).join("") : '<div class="record-list-empty">No owned vehicles recorded.</div>'}
+        </div>
+      </section>
+
+      <section class="customer-record-section">
+        <div class="record-section-head"><div><span class="eyebrow">SALES</span><h4>Deal Jackets</h4></div><b>${deals.length}</b></div>
+        <div class="customer-record-list">
+          ${deals.length ? deals.slice(0,6).map(d=>`<button class="customer-record-item" data-customer-deal="${d.id}"><span class="record-list-icon">${icon("handshake")}</span><span><strong>${safe(d.dealNumber||"Deal Jacket")}</strong><small>${safe(d.vehicleName||"Vehicle")} • ${safe((d.stage||"shopping").replaceAll("_"," "))}</small></span>${statusPill(d.stage||"shopping")}</button>`).join("") : '<div class="record-list-empty">No sales history yet.</div>'}
+        </div>
+      </section>
+
+      <section class="customer-record-section">
+        <div class="record-section-head"><div><span class="eyebrow">SERVICE</span><h4>Repair History</h4></div><b>${ros.length}</b></div>
+        <div class="customer-record-list">
+          ${ros.length ? ros.slice(0,6).map(r=>`<button class="customer-record-item" data-customer-ro="${r.id}"><span class="record-list-icon">${icon("wrench")}</span><span><strong>${safe(r.roNumber||"Repair Order")}</strong><small>${safe(r.vehicleName||"Vehicle")} • ${safe((r.status||"checked_in").replaceAll("_"," "))}</small></span>${icon("chevron-right")}</button>`).join("") : '<div class="record-list-empty">No service history yet.</div>'}
+        </div>
+      </section>
+
+      <section class="customer-record-section">
+        <div class="record-section-head"><div><span class="eyebrow">ACQUISITIONS</span><h4>Vehicles Sold to Sterling</h4></div><b>${acquisitions.length}</b></div>
+        <div class="customer-record-list">
+          ${acquisitions.length ? acquisitions.slice(0,6).map(a=>`<button class="customer-record-item" data-customer-acquisition="${a.id}"><span class="record-list-icon">${icon("badge-dollar-sign")}</span><span><strong>${safe(`${a.year||""} ${a.make||""} ${a.model||""}`.trim())}</strong><small>${a.offerAmount?money(a.offerAmount):"Offer pending"} • ${safe((a.status||"submitted").replaceAll("_"," "))}</small></span>${icon("chevron-right")}</button>`).join("") : '<div class="record-list-empty">No acquisition history.</div>'}
+        </div>
+      </section>
+    </div>
+
+    <section class="customer-timeline">
+      <div class="record-section-head"><div><span class="eyebrow">ACTIVITY</span><h4>Recent Sterling Activity</h4></div></div>
+      <div class="timeline-list">
+        ${timeline.length ? timeline.map(item=>`<div class="timeline-item"><span class="timeline-dot"></span><div><strong>${safe(item.title)}</strong><small>${safe(item.detail)}</small></div><time>${fmtDate(item.date)}</time></div>`).join("") : '<div class="record-list-empty">No activity recorded yet.</div>'}
+      </div>
+    </section>
+  `,`
+    ${can("customers.manage")||can("sales.manage") ? `<button class="btn secondary" id="edit-customer-details">${icon("pencil")} Edit Details</button>` : ""}
+    <span class="modal-footer-spacer"></span>
+    ${can("sales.manage") ? `<button class="btn secondary" id="customer-new-deal">${icon("handshake")} Start Deal</button>` : ""}
+    ${can("service.manage") ? `<button class="btn primary" id="customer-new-ro">${icon("wrench")} Open Repair Order</button>` : ""}
+  `);
+
+  document.querySelector("#edit-customer-details")?.addEventListener("click",()=>editCustomerModal(customer));
+  document.querySelector("#customer-new-deal")?.addEventListener("click",()=>{closeModal();dealModal(customer.id);});
+  document.querySelector("#customer-new-ro")?.addEventListener("click",()=>{closeModal();repairOrderModal({customerId:customer.id});});
+  document.querySelector("[data-checkout]")?.addEventListener("click",e=>checkoutCustomerModal(state.data.queue.find(q=>q.id===e.currentTarget.dataset.checkout),customer));
+  document.querySelectorAll("[data-customer-vehicle]").forEach(btn=>btn.addEventListener("click",()=>vehicleDetailModal(state.data.vehicles.find(v=>v.id===btn.dataset.customerVehicle))));
+  document.querySelectorAll("[data-customer-deal]").forEach(btn=>btn.addEventListener("click",()=>dealDetailModal(state.data.deals.find(d=>d.id===btn.dataset.customerDeal))));
+  document.querySelectorAll("[data-customer-ro]").forEach(btn=>btn.addEventListener("click",()=>repairOrderDetailModal(state.data.repairOrders.find(r=>r.id===btn.dataset.customerRo))));
+  document.querySelectorAll("[data-customer-acquisition]").forEach(btn=>btn.addEventListener("click",()=>acquisitionDetailModal(state.data.vehicleAcquisitions.find(a=>a.id===btn.dataset.customerAcquisition))));
+}
+
+function editCustomerModal(customer) {
+  modal("Edit Customer Details",`<form id="edit-customer-form" class="form-grid">
+    ${formField("Full Name","editCustomerName",customer.name||"","text","required")}
+    ${formField("Customer Number","editCustomerNumber",customer.customerNumber||"")}
+    ${formField("Email","editCustomerEmail",customer.email||"","email")}
+    ${formField("Phone","editCustomerPhone",customer.phone||"","tel")}
+  </form>`,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-customer-details">${icon("save")} Save Details</button>`);
+  for (const [id,value] of [["editCustomerName",customer.name||""],["editCustomerNumber",customer.customerNumber||""],["editCustomerEmail",customer.email||""],["editCustomerPhone",customer.phone||""]]) {
+    const el=document.querySelector("#"+id); if(el) el.value=value;
+  }
+  document.querySelector("#save-customer-details")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#edit-customer-form");if(!form.reportValidity())return;
+    try{
+      await updateRecord("customers",customer.id,{
+        name:document.querySelector("#editCustomerName").value.trim(),
+        customerNumber:document.querySelector("#editCustomerNumber").value.trim(),
+        email:document.querySelector("#editCustomerEmail").value.trim(),
+        phone:document.querySelector("#editCustomerPhone").value.trim()
+      });
+      await writeAudit(state.user,"customer.updated","customer",customer.id,{});
+      closeModal();await refreshData();setFlash("Customer information updated.");
+    }catch(e){setFlash(e.message||"Unable to update customer.","error");}
+  });
+}
+
+function checkoutCustomerModal(queueEntry, customer=null) {
+  if(!queueEntry)return;
+  const linkedCustomer=customer||resolveQueueCustomer(queueEntry);
+  modal("Check Out Customer",`
+    <div class="checkout-customer-head">
+      <span class="record-icon">${icon("log-out")}</span>
+      <div><span class="eyebrow">END DEALERSHIP VISIT</span><h3>${safe(queueEntry.customerName||"Guest")}</h3><p>${safe(queueEntry.reason||"Dealership visit")} • ${safe(queueEntry.ticket||"Guest")}</p></div>
+    </div>
+    <form id="checkout-form" class="form-grid">
+      <div class="field full"><label>Visit Outcome</label><select class="plain-input" id="checkoutOutcome">
+        <option>Visit Complete</option>
+        <option>Purchase Completed</option>
+        <option>Continuing Follow-Up</option>
+        <option>Service Complete</option>
+        <option>Appointment Scheduled</option>
+        <option>No Purchase / Browsing</option>
+        <option>Customer Left</option>
+        <option>Other</option>
+      </select></div>
+      <div class="field full"><label>Checkout Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="checkoutNotes" placeholder="Anything the next employee should know about this visit?"></textarea></div>
+    </form>
+    ${linkedCustomer ? `<div class="linked-customer-note">${icon("user-check")} This visit is linked to <strong>${safe(linkedCustomer.name||"the customer profile")}</strong> and will remain in their dealership history.</div>` : ""}
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn checkout-btn" id="confirm-checkout">${icon("log-out")} Check Out Customer</button>`);
+
+  document.querySelector("#confirm-checkout")?.addEventListener("click",async()=>{
+    const outcome=document.querySelector("#checkoutOutcome").value;
+    const notes=document.querySelector("#checkoutNotes").value.trim();
+    try{
+      await checkoutQueueEntry(queueEntry.id,{checkoutOutcome:outcome,checkoutNotes:notes},state.user);
+      await writeAudit(state.user,"queue.customer_checked_out","queue",queueEntry.id,{customerId:queueEntry.customerId||"",customerName:queueEntry.customerName||"",outcome});
+      closeModal();await refreshData();setFlash(`${queueEntry.customerName||"Customer"} checked out successfully.`);
+    }catch(e){setFlash(e.message||"Unable to check out customer.","error");}
+  });
+}
+ion notificationCenter() {
   const items = [...state.data.notifications].sort((a,b) => {
     const av = a.createdAt?.seconds || 0, bv = b.createdAt?.seconds || 0;
     return bv - av;
