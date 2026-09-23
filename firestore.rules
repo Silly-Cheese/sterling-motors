@@ -55,7 +55,19 @@ service cloud.firestore {
     match /vehicles/{id} {
       allow read: if signedIn();
       allow create: if permitted('inventory.manage') || permitted('sales.manage') || permitted('finance.manage') || permitted('admin.full');
-      allow update: if permitted('inventory.manage') || permitted('sales.manage') || permitted('finance.manage') || permitted('admin.full');
+      allow update: if
+        permitted('inventory.manage') ||
+        permitted('sales.manage') ||
+        permitted('finance.manage') ||
+        permitted('admin.full') ||
+        (permitted('service.manage') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'serviceReviewStatus',
+            'reconditioningEstimate',
+            'location',
+            'updatedAt'
+          ]));
       allow delete: if permitted('admin.full');
     }
 
@@ -147,7 +159,31 @@ service cloud.firestore {
 
     match /tradeIns/{id} {
       allow read: if activeStaff();
-      allow create, update: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow create: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow update: if
+        permitted('sales.manage') ||
+        permitted('deals.manage') ||
+        permitted('inventory.manage') ||
+        permitted('admin.full') ||
+        (permitted('finance.manage') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'inventoryVehicleId',
+            'receivedBy',
+            'receivedByName',
+            'updatedAt'
+          ])) ||
+        (permitted('service.manage') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'serviceReviewStatus',
+            'serviceReviewNotes',
+            'reconditioningEstimate',
+            'serviceInspection',
+            'serviceReviewedBy',
+            'serviceReviewedByName',
+            'updatedAt'
+          ]));
       allow delete: if permitted('admin.full');
     }
 
