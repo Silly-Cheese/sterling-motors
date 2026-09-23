@@ -21,7 +21,25 @@ service cloud.firestore {
     match /users/{uid} {
       allow create: if signedIn() && request.auth.uid == uid && request.resource.data.role == 'customer' && request.resource.data.isStaff == false && request.resource.data.permissions.size() == 0;
       allow read: if signedIn() && (request.auth.uid == uid || activeStaff());
-      allow update: if signedIn() && (permitted('staff.manage') || permitted('admin.full') || (request.auth.uid == uid && request.resource.data.role == resource.data.role && request.resource.data.isStaff == resource.data.isStaff && request.resource.data.permissions == resource.data.permissions && request.resource.data.status == resource.data.status));
+      allow update: if signedIn() && (
+        permitted('staff.manage') ||
+        permitted('admin.full') ||
+        (request.auth.uid == uid &&
+          request.resource.data.role == resource.data.role &&
+          request.resource.data.isStaff == resource.data.isStaff &&
+          request.resource.data.permissions == resource.data.permissions &&
+          request.resource.data.status == resource.data.status) ||
+        (request.auth.uid == uid &&
+          resource.data.isStaff == false &&
+          request.resource.data.isStaff == true &&
+          request.resource.data.role == 'dealer_principal' &&
+          request.resource.data.employeeId == 'SMG-0001' &&
+          request.resource.data.status == 'active' &&
+          request.resource.data.permissions.hasOnly(['*']) &&
+          !exists(/databases/$(database)/documents/system/bootstrap) &&
+          existsAfter(/databases/$(database)/documents/system/bootstrap) &&
+          getAfter(/databases/$(database)/documents/system/bootstrap).data.ownerUid == request.auth.uid)
+      );
       allow delete: if permitted('admin.full');
     }
 
@@ -67,6 +85,37 @@ service cloud.firestore {
       allow create: if activeStaff();
       allow update: if activeStaff();
       allow delete: if permitted('admin.full');
+    }
+
+
+    match /tradeIns/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /financeApplications/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('finance.manage') || permitted('deals.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /deliveries/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('finance.manage') || permitted('sales.manage') || permitted('deals.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /system/bootstrap {
+      allow read: if signedIn();
+      allow create: if signedIn() &&
+        !exists(/databases/$(database)/documents/system/bootstrap) &&
+        request.resource.data.ownerUid == request.auth.uid &&
+        existsAfter(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.isStaff == true &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'dealer_principal' &&
+        getAfter(/databases/$(database)/documents/users/$(request.auth.uid)).data.permissions.hasOnly(['*']);
+      allow update, delete: if permitted('admin.full');
     }
 
     match /system/{id} {
