@@ -51,7 +51,8 @@ service cloud.firestore {
 
     match /vehicles/{id} {
       allow read: if signedIn();
-      allow create, update: if permitted('inventory.manage') || permitted('admin.full');
+      allow create: if permitted('inventory.manage') || permitted('sales.manage') || permitted('finance.manage') || permitted('admin.full');
+      allow update: if permitted('inventory.manage') || permitted('sales.manage') || permitted('finance.manage') || permitted('admin.full');
       allow delete: if permitted('admin.full');
     }
 
@@ -96,7 +97,7 @@ service cloud.firestore {
 
     match /financeApplications/{id} {
       allow read: if activeStaff();
-      allow create, update: if permitted('finance.manage') || permitted('deals.manage') || permitted('admin.full');
+      allow create, update: if permitted('finance.manage') || permitted('admin.full');
       allow delete: if permitted('admin.full');
     }
 
