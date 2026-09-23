@@ -741,7 +741,7 @@ function financePage() {
   const financed = state.data.financeApplications.reduce((sum,x) => sum + Number(x.amountFinanced || 0), 0);
 
   return `
-    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Build RP financing packages, protection products, contracts, and final vehicle delivery.")}
+    ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Build RP financing packages, protection products, contracts, and final vehicle delivery.", `<button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Finance Appointments</button>`)}
     <div class="metric-grid">
       ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
       ${metric("Approved Packages", approved, "badge-check", "Saved finance packages")}
