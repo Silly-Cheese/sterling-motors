@@ -357,7 +357,7 @@ function staffPage() {
   const users = state.data.users.filter(u => u.isStaff);
   return `
     ${pageHeader("STERLING MOTOR GROUP", "Staff Directory", "Employee identity, department, status, and access across Sterling DRIVE.",
-      can("staff.manage") ? `<button class="btn primary" data-action="manage-staff">${icon("user-cog")} Manage Access</button>` : "")}
+      can("admin.full") ? `<button class="btn primary" data-action="manage-staff">${icon("user-cog")} Manage Access</button>` : "")}
     <div class="staff-grid">
       ${users.length ? users.map(u => `<article class="staff-card">
         <div class="staff-band"></div>
@@ -366,7 +366,7 @@ function staffPage() {
         <p>${safe(u.role || "Employee")}</p>
         <div class="staff-details"><span>${icon("building-2")} ${safe(u.department || "Sterling Motors")}</span><span>${icon("badge-check")} ${safe(u.employeeId || "ID pending")}</span></div>
         ${statusPill(u.status || "active")}
-        ${can("staff.manage") ? `<button class="btn secondary small staff-manage-btn" data-staff="${u.id}">${icon("settings-2")} Manage</button>` : ""}
+        ${can("admin.full") ? `<button class="btn secondary small staff-manage-btn" data-staff="${u.id}">${icon("settings-2")} Manage</button>` : ""}
       </article>`).join("") : emptyState("id-card", "No staff profiles found", "Staff accounts will appear here after an administrator provisions them.")}
     </div>
   `;
@@ -432,7 +432,9 @@ function financePage() {
             <td>${trade ? money(trade.allowance) : "None"}</td>
             <td>${fin ? statusPill(fin.status || "draft") : '<span class="muted-inline">Not started</span>'}</td>
             <td><strong>${fin ? money(fin.monthlyPayment) + "/mo" : "—"}</strong></td>
-            <td><button class="btn secondary small" data-finance-deal="${d.id}">${icon(d.stage==="delivery"?"key-round":"calculator")} ${d.stage==="delivery"?"Delivery":"Open F&I"}</button></td>
+            <td>${d.stage==="delivery"
+              ? ((can("finance.manage") || can("sales.manage")) ? `<button class="btn secondary small" data-finance-deal="${d.id}">${icon("key-round")} Delivery</button>` : '<span class="muted-inline">View only</span>')
+              : (can("finance.manage") ? `<button class="btn secondary small" data-finance-deal="${d.id}">${icon("calculator")} Open F&I</button>` : '<span class="muted-inline">View only</span>')}</td>
           </tr>`;
         }).join("")}</tbody>
       </table></div>` : emptyState("landmark", "Finance queue is clear", "Approved sales deals will arrive here automatically.")}
@@ -856,8 +858,8 @@ function dealDetailModal(d) {
     <div class="workflow-actions">
       ${can("sales.manage") && !activeDrive && vehicle && ["shopping","negotiation"].includes((d.stage || "shopping").toLowerCase()) ? `<button class="btn secondary" id="start-test-drive">${icon("key-round")} Start Test Drive</button>` : ""}
       ${can("sales.manage") && !["delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn secondary" id="trade-in">${icon("car")} ${trade ? "Edit Trade" : "Appraise Trade"}</button>` : ""}
-      ${(can("finance.manage") || can("deals.manage")) && (d.stage || "").toLowerCase()==="finance" ? `<button class="btn secondary" id="open-finance">${icon("calculator")} Open Finance</button>` : ""}
-      ${(can("finance.manage") || can("deals.manage") || can("sales.manage")) && (d.stage || "").toLowerCase()==="delivery" ? `<button class="btn primary" id="open-delivery">${icon("key-round")} Delivery Checklist</button>` : ""}
+      ${can("finance.manage") && (d.stage || "").toLowerCase()==="finance" ? `<button class="btn secondary" id="open-finance">${icon("calculator")} Open Finance</button>` : ""}
+      ${(can("finance.manage") || can("sales.manage")) && (d.stage || "").toLowerCase()==="delivery" ? `<button class="btn primary" id="open-delivery">${icon("key-round")} Delivery Checklist</button>` : ""}
       ${can("sales.manage") && !managerReview && !["finance","documents","delivery","complete"].includes((d.stage || "").toLowerCase()) ? `<button class="btn primary" id="send-desk">${icon("send")} Send to Desk</button>` : ""}
       ${managerReview && isManager() ? `<button class="btn success-btn" id="approve-deal">${icon("check")} Approve to Finance</button><button class="btn secondary" id="counter-deal">${icon("message-square-more")} Counter</button><button class="btn danger-btn" id="decline-deal">${icon("x")} Decline</button>` : ""}
     </div>
