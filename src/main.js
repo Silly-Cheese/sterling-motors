@@ -2922,7 +2922,11 @@ async function refreshData() {
       state.data.vehicles=uniqueVehicles;
       Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments });
     } else {
-      const [vehicleAcquisitions, financeAppointments] = await Promise.all([\n        listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),\n        listFinanceAppointmentsForUser(state.user.uid).catch(() => [])\n      ]);\n      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
+      const [vehicleAcquisitions, financeAppointments] = await Promise.all([
+        listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),
+        listFinanceAppointmentsForUser(state.user.uid).catch(() => [])
+      ]);
+      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
