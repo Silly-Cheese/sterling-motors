@@ -116,3 +116,51 @@ export async function writeAudit(actor, action, targetType, targetId, detail = {
     console.warn("Audit write skipped:", error?.message || error);
   }
 }
+
+
+export async function createTestDrive(data, actor) {
+  return addDoc(collection(db, "testDrives"), {
+    ...data,
+    status: "active",
+    startedBy: actor.uid,
+    startedByName: actor.displayName || actor.email || "Sterling Staff",
+    startedAt: serverTimestamp(),
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function completeTestDrive(id, data, actor) {
+  return updateDoc(doc(db, "testDrives", id), {
+    ...data,
+    status: "completed",
+    completedBy: actor.uid,
+    completedByName: actor.displayName || actor.email || "Sterling Staff",
+    completedAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function createNotification(data, actor) {
+  return addDoc(collection(db, "notifications"), {
+    ...data,
+    read: false,
+    createdBy: actor?.uid || null,
+    createdByName: actor?.displayName || actor?.email || "Sterling DRIVE",
+    createdAt: serverTimestamp()
+  });
+}
+
+export async function markNotificationRead(id) {
+  return updateDoc(doc(db, "notifications", id), {
+    read: true,
+    readAt: serverTimestamp()
+  });
+}
+
+export async function updateUserAccess(uid, patch) {
+  return updateDoc(doc(db, "users", uid), {
+    ...patch,
+    updatedAt: serverTimestamp()
+  });
+}
