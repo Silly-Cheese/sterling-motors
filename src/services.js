@@ -336,3 +336,62 @@ export async function checkoutQueueEntry(id, data, actor) {
     updatedAt: serverTimestamp()
   });
 }
+
+
+export async function saveTradeInForDeal(data, actor, existingId = "") {
+  const id = existingId || data.dealId;
+  if (!id) throw new Error("A Deal Jacket is required for a trade-in.");
+  const ref = doc(db, "tradeIns", id);
+  const snapshot = await getDoc(ref);
+  const payload = {
+    ...data,
+    mileage: Number(data.mileage || 0),
+    acv: Number(data.acv || 0),
+    allowance: Number(data.allowance || 0),
+    createdBy: snapshot.exists() ? (snapshot.data().createdBy || actor.uid) : actor.uid,
+    createdByName: snapshot.exists() ? (snapshot.data().createdByName || actor.displayName || actor.email || "Sterling Staff") : (actor.displayName || actor.email || "Sterling Staff"),
+    updatedAt: serverTimestamp()
+  };
+  if (!snapshot.exists()) payload.createdAt = serverTimestamp();
+  await setDoc(ref, payload, { merge: true });
+  return { id };
+}
+
+export async function receiveTradeInVehicle(trade, deal, actor) {
+  if (!trade?.id) throw new Error("Trade-in record is missing.");
+  const vehicleId = trade.inventoryVehicleId || `trade-${trade.id}`;
+  const vehicleRef = doc(db, "vehicles", vehicleId);
+  const tradeRef = doc(db, "tradeIns", trade.id);
+  const batch = writeBatch(db);
+
+  batch.set(vehicleRef, {
+    year: trade.year,
+    make: trade.make,
+    model: trade.model,
+    vin: trade.vin,
+    mileage: Number(trade.mileage || 0),
+    stockNumber: `TRD-${String(deal?.dealNumber || deal?.id || trade.id).replace(/[^A-Za-z0-9]/g, "").slice(-8)}`,
+    trim: "Trade-In",
+    color: "Pending Service Review",
+    msrp: Number(trade.managerApprovedAcv ?? trade.acv ?? 0),
+    price: Number(trade.managerApprovedAcv ?? trade.acv ?? 0),
+    status: "service_review",
+    location: "Trade-In Inspection",
+    sourceTradeId: trade.id,
+    acquisitionCost: Number(trade.managerApprovedAcv ?? trade.acv ?? 0),
+    createdBy: actor.uid,
+    updatedAt: serverTimestamp(),
+    createdAt: serverTimestamp()
+  }, { merge: true });
+
+  batch.set(tradeRef, {
+    status: "service_review_required",
+    inventoryVehicleId: vehicleId,
+    receivedBy: actor.uid,
+    receivedByName: actor.displayName || actor.email || "Sterling Staff",
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+
+  await batch.commit();
+  return { id: vehicleId };
+}
