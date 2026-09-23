@@ -3362,6 +3362,17 @@ function bindApp() {
     const deal = state.data.deals.find(d => d.id === btn.dataset.queueDeal);
     if (deal) dealDetailModal(deal);
   }));
+  document.querySelectorAll("[data-finance-customer]").forEach(btn => btn.addEventListener("click", () => financeCustomerDetailModal(financeClientDirectory().find(c=>c.key===btn.dataset.financeCustomer))));
+  document.querySelectorAll("[data-finance-customer-from-deal]").forEach(btn => btn.addEventListener("click", () => {
+    const deal=state.data.deals.find(d=>d.id===btn.dataset.financeCustomerFromDeal);
+    if(!deal)return;
+    const client=financeClientDirectory().find(c=>c.customerId===deal.customerId || (!deal.customerId && String(c.name||"").toLowerCase()===String(deal.customerName||"").toLowerCase()));
+    if(client) financeCustomerDetailModal(client);
+  }));
+  document.querySelector("#finance-customer-search")?.addEventListener("input",e=>{
+    const term=e.currentTarget.value.toLowerCase().trim();
+    document.querySelectorAll("#finance-customer-rows tr").forEach(row=>row.style.display=(row.dataset.search||"").includes(term)?"":"none");
+  });
   document.querySelectorAll("[data-finance-appointment]").forEach(btn => btn.addEventListener("click", () => manageFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.financeAppointment))));
   document.querySelectorAll("[data-cancel-finance-appointment]").forEach(btn => btn.addEventListener("click", () => cancelFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.cancelFinanceAppointment),false)));
   document.querySelectorAll("[data-finance-deal]").forEach(btn => btn.addEventListener("click", () => {
