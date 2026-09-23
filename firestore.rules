@@ -233,6 +233,36 @@ service cloud.firestore {
       allow delete: if permitted('admin.full');
     }
 
+
+    match /financeAppointments/{id} {
+      allow read: if
+        activeStaff() ||
+        (signedIn() && resource.data.requesterUid == request.auth.uid);
+
+      allow create: if
+        permitted('finance.manage') ||
+        permitted('admin.full') ||
+        (signedIn() &&
+          request.resource.data.requesterUid == request.auth.uid &&
+          request.resource.data.status == 'requested');
+
+      allow update: if
+        permitted('finance.manage') ||
+        permitted('admin.full') ||
+        (signedIn() &&
+          resource.data.requesterUid == request.auth.uid &&
+          resource.data.status in ['requested', 'confirmed'] &&
+          request.resource.data.status == 'cancelled' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'cancellationNote',
+            'cancelledAt',
+            'updatedAt'
+          ]));
+
+      allow delete: if permitted('admin.full');
+    }
+
     match /financeApplications/{id} {
       allow read: if activeStaff();
       allow create, update: if permitted('finance.manage') || permitted('admin.full');
