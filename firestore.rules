@@ -55,6 +55,20 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
+
+    match /testDrives/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /notifications/{id} {
+      allow read: if activeStaff();
+      allow create: if activeStaff();
+      allow update: if activeStaff();
+      allow delete: if permitted('admin.full');
+    }
+
     match /system/{id} {
       allow read, write: if permitted('admin.full');
     }
