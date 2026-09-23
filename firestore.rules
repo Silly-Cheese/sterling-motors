@@ -65,10 +65,15 @@ service cloud.firestore {
         permitted('sales.manage') ||
         permitted('finance.manage') ||
         permitted('admin.full') ||
+        (permitted('acquisitions.manage') && resource.data.sourceAcquisitionId is string) ||
         (permitted('service.manage') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status',
             'serviceReviewStatus',
+            'serviceReviewNotes',
+            'serviceInspection',
+            'serviceReviewedBy',
+            'serviceReviewedByName',
             'reconditioningEstimate',
             'location',
             'updatedAt'
