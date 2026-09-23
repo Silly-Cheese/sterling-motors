@@ -2876,7 +2876,7 @@ async function refreshData() {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
@@ -2890,7 +2890,8 @@ async function refreshData() {
         listCollection("repairOrders").catch(() => []),
         listCollection("parts").catch(() => []),
         listCollection("partRequests").catch(() => []),
-        listCollection("vehicleAcquisitions").catch(() => [])
+        listCollection("vehicleAcquisitions").catch(() => []),
+        listCollection("financeAppointments").catch(() => [])
       ]);
       const tradeGroups=new Map();
       for(const trade of tradeIns){
@@ -2918,10 +2919,9 @@ async function refreshData() {
         uniqueVehicles.push(vehicle);
       }
       state.data.vehicles=uniqueVehicles;
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments });
     } else {
-      state.data.vehicleAcquisitions = await listVehicleAcquisitionsForUser(state.user.uid).catch(() => []);
-      Object.assign(state.data,{ deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
+      const [vehicleAcquisitions, financeAppointments] = await Promise.all([\n        listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),\n        listFinanceAppointmentsForUser(state.user.uid).catch(() => [])\n      ]);\n      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[] });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -3112,7 +3112,7 @@ onAuthStateChanged(auth, async (user) => {
   } else {
     state.profile = null;
     state.bootstrap = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [] };
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [] };
   }
   state.loading = false;
   state.page = "dashboard";
