@@ -92,6 +92,46 @@ service cloud.firestore {
     }
 
 
+
+    match /serviceAppointments/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('service.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /repairOrders/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('service.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /parts/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('parts.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /partRequests/{id} {
+      allow read: if activeStaff();
+      allow create: if permitted('service.manage') || permitted('parts.manage') || permitted('admin.full');
+      allow update: if permitted('parts.manage') || permitted('service.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /vehicleAcquisitions/{id} {
+      allow read: if activeStaff() || (signedIn() && resource.data.sellerUid == request.auth.uid);
+      allow create: if
+        permitted('sales.manage') ||
+        permitted('inventory.manage') ||
+        permitted('admin.full') ||
+        (signedIn() &&
+          request.resource.data.sellerUid == request.auth.uid &&
+          request.resource.data.status == 'submitted' &&
+          request.resource.data.offerAmount == 0);
+      allow update: if permitted('sales.manage') || permitted('inventory.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
     match /tradeIns/{id} {
       allow read: if activeStaff();
       allow create, update: if permitted('sales.manage') || permitted('deals.manage') || permitted('inventory.manage') || permitted('admin.full');
