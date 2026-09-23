@@ -521,3 +521,23 @@ export async function listFinanceAppointmentsForUser(uid, max = 50) {
     .map((entry) => ({ id: entry.id, ...entry.data() }))
     .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
+
+
+export async function saveFinanceCustomerProfile(profileId, data, actor) {
+  if (!profileId) throw new Error("Finance customer profile ID is required.");
+  const ref = doc(db, "financeCustomerProfiles", profileId);
+  const snapshot = await getDoc(ref);
+  const payload = {
+    ...data,
+    updatedBy: actor.uid,
+    updatedByName: actor.displayName || actor.email || "Sterling Finance",
+    updatedAt: serverTimestamp()
+  };
+  if (!snapshot.exists()) {
+    payload.createdBy = actor.uid;
+    payload.createdByName = actor.displayName || actor.email || "Sterling Finance";
+    payload.createdAt = serverTimestamp();
+  }
+  await setDoc(ref, payload, { merge: true });
+  return { id: profileId };
+}
