@@ -27,7 +27,13 @@ import {
   claimBootstrap,
   createTradeIn,
   createFinanceApplication,
-  createDelivery
+  createDelivery,
+  createServiceAppointment,
+  createRepairOrder,
+  createPart,
+  createPartRequest,
+  createVehicleAcquisition,
+  listVehicleAcquisitionsForUser
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -36,7 +42,7 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [] },
   bootstrap: null,
   loading: true,
   flash: null
@@ -56,6 +62,7 @@ const navGroups = [
       ["customers","users","Customers"],
       ["queue","concierge-bell","Reception"],
       ["inventory","car-front","Inventory"],
+      ["acquisitions","badge-dollar-sign","Sell / Acquire"],
       ["finance","landmark","Finance"]
     ]
   },
@@ -143,7 +150,7 @@ function shell(content) {
           ${navGroups.map(group => `<div class="nav-group">
             <div class="nav-group-label">${group.label}</div>
             ${group.items.map(([id, ico, label]) => {
-              const blocked = !staff && !["dashboard", "inventory"].includes(id);
+              const blocked = !staff && !["dashboard", "inventory", "acquisitions"].includes(id);
               return `<button class="nav-item ${state.page === id ? "active" : ""} ${blocked ? "locked" : ""}" data-page="${id}" ${blocked ? "disabled" : ""}>
                 <span class="nav-icon">${icon(ico)}</span><span class="nav-label">${label}</span>${blocked ? icon("lock-keyhole", "nav-lock") : state.page === id ? '<span class="active-rail"></span>' : ""}
               </button>`;
@@ -193,6 +200,7 @@ function pageSubtitle() {
     customers:"Customer relationship management",
     queue:"Front-of-house guest flow",
     inventory:"Vehicle stock and availability",
+    acquisitions:"Customer vehicle purchases and appraisals",
     finance:"F&I, payments, and delivery",
     service:"Repair and maintenance operations",
     parts:"Parts inventory and fulfillment",
