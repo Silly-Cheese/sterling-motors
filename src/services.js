@@ -10,7 +10,8 @@ import {
   serverTimestamp,
   setDoc,
   updateDoc,
-  writeBatch
+  writeBatch,
+  where
 } from "firebase/firestore";
 import { db } from "./firebase.js";
 
@@ -309,4 +310,17 @@ export async function createVehicleAcquisition(data, actor) {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp()
   });
+}
+
+
+export async function listVehicleAcquisitionsForUser(uid, max = 50) {
+  const q = query(
+    collection(db, "vehicleAcquisitions"),
+    where("sellerUid", "==", uid),
+    limit(max)
+  );
+  const snapshot = await getDocs(q);
+  return snapshot.docs
+    .map((entry) => ({ id: entry.id, ...entry.data() }))
+    .sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
 }
