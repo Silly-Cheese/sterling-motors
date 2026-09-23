@@ -1199,6 +1199,7 @@ function financeWorksheetModal(d) {
       ${formField("APR","apr",String(existing?.apr || 6.49),"number","required min='0' step='0.01'")}
       <div class="field"><label>Term</label><select class="plain-input" id="termMonths">${[36,48,60,72,84].map(n=>`<option value="${n}" ${Number(existing?.termMonths||72)===n?"selected":""}>${n} months</option>`).join("")}</select></div>
       <div class="field full"><label>F&I Products</label><div class="product-options">${products.map(([id,label,price])=>`<label><input type="checkbox" data-finance-product="${id}" data-price="${price}" ${selected.has(id)?"checked":""}><span><strong>${label}</strong><small>${money(price)}</small></span></label>`).join("")}</div></div>
+      <div class="field full"><label>Finance Internal Notes <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="financeInternalNotes" placeholder="RP-only notes about the payment package, customer preferences, or follow-up.">${safe(existing?.internalNotes||"")}</textarea></div>
     </form>
     <div class="finance-summary">
       <div><span>Products</span><strong id="sumProducts">$0</strong></div>
@@ -1229,7 +1230,8 @@ function financeWorksheetModal(d) {
     const data={
       dealId:d.id,dealNumber:d.dealNumber || "",customerId:d.customerId || "",customerName:d.customerName || "",vehicleId:d.vehicleId,vehicleName:d.vehicleName || "",
       salePrice:sale,creditTier:document.querySelector("#creditTier").value,downPayment:x.down,tradeAllowance:x.allowance,products:productsSelected,productTotal:x.productTotal,
-      amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"approved"
+      amountFinanced:x.principal,apr:x.apr,termMonths:x.term,monthlyPayment:Number(x.payment.toFixed(2)),status:"approved",
+      internalNotes:document.querySelector("#financeInternalNotes")?.value.trim()||""
     };
     try{
       let financeId=existing?.id;
