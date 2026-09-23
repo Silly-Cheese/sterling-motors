@@ -1231,6 +1231,120 @@ function monthlyPayment(principal, apr, months) {
   return p*r/(1-Math.pow(1+r,-n));
 }
 
+function financePaymentLabPickerModal() {
+  const deals=state.data.deals.filter(d=>["finance","documents"].includes((d.stage||"").toLowerCase()));
+  modal("Finance Payment Lab",`
+    <div class="payment-lab-picker-head">
+      <span class="record-icon">${icon("sliders-horizontal")}</span>
+      <div><span class="eyebrow">PAYMENT STRATEGY</span><h3>Select a Finance deal</h3><p>Compare multiple RP payment structures before finalizing a package.</p></div>
+    </div>
+    ${deals.length ? `<div class="payment-lab-picker-list">
+      ${deals.map(d=>`<button class="payment-lab-deal" data-payment-lab-deal="${d.id}">
+        <span class="record-list-icon">${icon("car-front")}</span>
+        <span><strong>${safe(d.customerName||"Customer")}</strong><small>${safe(d.dealNumber||"Deal")} • ${safe(d.vehicleName||"Vehicle")}</small></span>
+        <strong>${money(Number(d.counterPrice||d.finalPrice||d.price||0))}</strong>
+        ${icon("chevron-right")}
+      </button>`).join("")}
+    </div>` : `<div class="record-list-empty">No deals are currently waiting in Finance.</div>`}
+  `);
+  document.querySelectorAll("[data-payment-lab-deal]").forEach(btn=>btn.addEventListener("click",()=>{
+    const deal=state.data.deals.find(d=>d.id===btn.dataset.paymentLabDeal);
+    if(deal) financePaymentLabModal(deal);
+  }));
+}
+
+function financePaymentLabModal(d) {
+  if(!d)return;
+  const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
+  const client=financeClientDirectory().find(c=>c.customerId===d.customerId || (!d.customerId && String(c.name||"").toLowerCase()===String(d.customerName||"").toLowerCase()));
+  const profile=client?.profile||{};
+  const sale=Number(d.counterPrice||d.finalPrice||d.price||0);
+  const tradeAllowance=Number(trade?.managerApprovedAllowance ?? trade?.allowance ?? d.tradeAllowance ?? 0);
+  const startingDown=Number(profile.preferredDownPayment||0);
+  const startingApr=6.49;
+  const goal=Number(profile.monthlyPaymentGoal||client?.appointments?.find(a=>a.monthlyGoal)?.monthlyGoal||0);
+
+  modal("Finance Payment Lab",`
+    <div class="payment-lab-hero">
+      <div><span class="eyebrow">PAYMENT STRATEGY LAB</span><h3>${safe(d.customerName||"Customer")}</h3><p>${safe(d.vehicleName||"Vehicle")} • ${safe(d.dealNumber||"Deal")}</p></div>
+      <div><span>Customer Goal</span><strong>${goal?money(goal)+"/mo":"Not set"}</strong></div>
+    </div>
+
+    <div class="payment-lab-controls">
+      <div class="field"><label>Base APR</label><input class="plain-input" id="labApr" type="number" min="0" step="0.01" value="${startingApr}"></div>
+      <div class="field"><label>Preferred Down Payment</label><input class="plain-input" id="labDown" type="number" min="0" value="${startingDown}"></div>
+      <div class="field"><label>F&I Menu</label><select class="plain-input" id="labMenu">
+        <option value="base">Base — No products</option>
+        <option value="protect">Protect — GAP + Warranty</option>
+        <option value="complete">Complete — Full protection</option>
+      </select></div>
+      <div class="field"><label>Trade Allowance</label><input class="plain-input" value="${tradeAllowance}" readonly></div>
+    </div>
+
+    <div class="payment-lab-facts">
+      <span><small>Sale Price</small><strong>${money(sale)}</strong></span>
+      <span><small>Trade</small><strong>${money(tradeAllowance)}</strong></span>
+      <span><small>Customer Down Preference</small><strong id="labDownFact">${money(startingDown)}</strong></span>
+      <span><small>Payment Goal</small><strong>${goal?money(goal)+"/mo":"—"}</strong></span>
+    </div>
+
+    <div class="payment-scenario-grid" id="payment-scenario-grid"></div>
+
+    <div class="payment-lab-note">${icon("info")} Scenarios are fictional RP estimates. Choose a plan to load those values into the Finance Worksheet, where Finance can still edit them before finalizing.</div>
+  `);
+
+  const renderScenarios=()=>{
+    const apr=Number(document.querySelector("#labApr").value||0);
+    const preferredDown=Number(document.querySelector("#labDown").value||0);
+    const menu=document.querySelector("#labMenu").value;
+    const menuProducts={
+      base:[],
+      protect:["gap","extended_warranty"],
+      complete:["gap","extended_warranty","maintenance","tire_wheel"]
+    }[menu]||[];
+    const productPrices={gap:995,extended_warranty:2495,maintenance:1495,tire_wheel:895};
+    const productTotal=menuProducts.reduce((s,id)=>s+productPrices[id],0);
+    const scenarios=[
+      {id:"short",label:"Short Term",term:48,down:Math.max(preferredDown,Math.round(sale*.15)),desc:"Higher payment, faster payoff"},
+      {id:"balanced",label:"Balanced",term:60,down:Math.max(preferredDown,Math.round(sale*.10)),desc:"Middle-ground payment structure"},
+      {id:"lower",label:"Lower Payment",term:72,down:preferredDown,desc:"Lower monthly payment"},
+      {id:"cashlight",label:"Low Cash Due",term:84,down:Math.min(preferredDown,Math.round(sale*.05)),desc:"Lowest cash due at signing"}
+    ];
+    document.querySelector("#labDownFact").textContent=money(preferredDown);
+    const grid=document.querySelector("#payment-scenario-grid");
+    grid.innerHTML=scenarios.map(s=>{
+      const principal=Math.max(0,sale-s.down-tradeAllowance+productTotal);
+      const payment=monthlyPayment(principal,apr,s.term);
+      const delta=goal?payment-goal:0;
+      return `<article class="payment-scenario-card ${goal && payment<=goal?"meets-goal":""}">
+        <div class="payment-scenario-top"><span>${s.label}</span><strong>${money(payment)}<small>/mo</small></strong></div>
+        <p>${s.desc}</p>
+        <div class="payment-scenario-values">
+          <span><small>Down</small><strong>${money(s.down)}</strong></span>
+          <span><small>Term</small><strong>${s.term} mo</strong></span>
+          <span><small>APR</small><strong>${apr.toFixed(2)}%</strong></span>
+          <span><small>Financed</small><strong>${money(principal)}</strong></span>
+        </div>
+        ${goal?`<div class="goal-delta ${delta<=0?"good":"high"}">${delta<=0?icon("circle-check-big"):icon("triangle-alert")} ${delta<=0?`${money(Math.abs(delta))}/mo under goal`:`${money(delta)}/mo over goal`}</div>`:""}
+        <button class="btn ${goal && payment<=goal?"primary":"secondary"}" data-use-payment-plan="${s.id}" data-down="${s.down}" data-term="${s.term}" data-apr="${apr}" data-products="${menuProducts.join(",")}">${icon("arrow-right")} Use This Plan</button>
+      </article>`;
+    }).join("");
+    hydrateIcons();
+    grid.querySelectorAll("[data-use-payment-plan]").forEach(btn=>btn.addEventListener("click",()=>{
+      const preset={
+        downPayment:Number(btn.dataset.down||0),
+        termMonths:Number(btn.dataset.term||72),
+        apr:Number(btn.dataset.apr||0),
+        products:(btn.dataset.products||"").split(",").filter(Boolean)
+      };
+      financeWorksheetModal(d,preset);
+    }));
+  };
+
+  document.querySelectorAll("#labApr,#labDown,#labMenu").forEach(el=>el.addEventListener("input",renderScenarios));
+  renderScenarios();
+}
+
 function financeWorksheetModal(d, preset = null) {
   const trade=state.data.tradeIns.find(t=>t.dealId===d.id);
   const existing=state.data.financeApplications.find(x=>x.dealId===d.id);
