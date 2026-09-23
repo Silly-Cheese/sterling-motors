@@ -12,7 +12,7 @@ import {
   updateDoc,
   writeBatch
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "./firebase.js";
 
 export async function getUserProfile(uid) {
   const snapshot = await getDoc(doc(db, "users", uid));
