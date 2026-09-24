@@ -44,7 +44,11 @@ import {
   staffAcceptAcquisitionOffer,
   createFinanceAppointment,
   listFinanceAppointmentsForUser,
-  saveFinanceCustomerProfile
+  saveFinanceCustomerProfile,
+  ensurePaymentAccount,
+  recordVehiclePayment,
+  markVehiclePaymentDefault,
+  repossessVehicleFromAccount
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -53,7 +57,7 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [] },
   bootstrap: null,
   loading: true,
   flash: null
@@ -75,7 +79,8 @@ const navGroups = [
       ["inventory","car-front","Inventory"],
       ["acquisitions","badge-dollar-sign","Sell / Acquire"],
       ["financeAppointments","calendar-clock","Finance Appointment"],
-      ["finance","landmark","Finance"]
+      ["finance","landmark","Finance"],
+      ["payments","receipt-text","Payments & Recovery"]
     ]
   },
   {
@@ -215,6 +220,7 @@ function pageSubtitle() {
     acquisitions:"Customer vehicle purchases and appraisals",
     financeAppointments:"Finance consultation scheduling",
     finance:"F&I, payments, and delivery",
+    payments:"Vehicle payment accounts, defaults, and recovery",
     service:"Repair and maintenance operations",
     parts:"Parts inventory and fulfillment",
     staff:"Employees, roles, and access",
@@ -2726,6 +2732,7 @@ function currentPage() {
     case "staff": return staffPage();
     case "financeAppointments": return financeAppointmentsPage();
     case "finance": return financePage();
+    case "payments": return paymentsPage();
     case "service": return servicePage();
     case "parts": return partsPage();
     case "acquisitions": return acquisitionsPage();
