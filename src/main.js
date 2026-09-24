@@ -860,6 +860,306 @@ function financeProfileId(client) {
   return `contact_${String(client.email||client.name||client.key||"finance").replace(/[^A-Za-z0-9_-]/g,"_").slice(0,90)}`;
 }
 
+function paymentsPage() {
+  const accounts=state.data.paymentAccounts || [];
+  const transactions=state.data.paymentTransactions || [];
+  const recoveries=state.data.vehicleRecoveryCases || [];
+  const active=accounts.filter(a=>["active","late"].includes(a.status||"active"));
+  const defaulted=accounts.filter(a=>(a.status||"")==="defaulted");
+  const repossessed=accounts.filter(a=>(a.status||"")==="repossessed");
+  const outstanding=accounts.filter(a=>!["paid_off","closed"].includes(a.status||"")).reduce((sum,a)=>sum+Number(a.currentBalance||0),0);
+  const trackedFinanceIds=new Set(accounts.map(a=>a.financeApplicationId).filter(Boolean));
+  const legacy=state.data.financeApplications.filter(fin=>{
+    if(trackedFinanceIds.has(fin.id) || Number(fin.amountFinanced||0)<=0 || fin.financeSource==="Cash / No Lender") return false;
+    const deal=state.data.deals.find(d=>d.id===fin.dealId);
+    const vehicle=state.data.vehicles.find(v=>v.id===deal?.vehicleId);
+    return (deal?.stage==="complete" || vehicle?.status==="sold");
+  });
+  const serviceWaiting=recoveries.filter(r=>["service_review_required","reconditioning"].includes(r.status||"")).length;
+  const managerWaiting=recoveries.filter(r=>(r.status||"")==="manager_review_required").length;
+
+  return `
+    ${pageHeader("FINANCE OPERATIONS","Payments & Recovery","Track fictional vehicle payments, account status, defaults, repossessions, and controlled return-to-retail approvals.",
+      `<button class="btn secondary" data-page="finance">${icon("landmark")} Back to Finance</button>`)}
+
+    <div class="metric-grid">
+      ${metric("Active Accounts",active.length,"receipt-text","Current Sterling payment plans")}
+      ${metric("Outstanding Balance",money(outstanding),"circle-dollar-sign","Across open RP accounts")}
+      ${metric("Defaulted",defaulted.length,"triangle-alert","Accounts requiring Finance action")}
+      ${metric("Recovery Approvals",serviceWaiting+managerWaiting,"shield-check",`${serviceWaiting} Service • ${managerWaiting} Manager`)}
+    </div>
+
+    ${legacy.length ? `<div class="panel legacy-payment-panel">
+      <div class="panel-head"><div><span class="eyebrow">EXISTING FINANCED SALES</span><h2>Payment Accounts Not Yet Activated</h2></div><span class="toolbar-count">${legacy.length}</span></div>
+      <div class="legacy-payment-list">
+        ${legacy.map(fin=>{
+          const deal=state.data.deals.find(d=>d.id===fin.dealId);
+          return `<div class="legacy-payment-row">
+            <span class="record-list-icon">${icon("car-front")}</span>
+            <span><strong>${safe(fin.customerName||deal?.customerName||"Customer")}</strong><small>${safe(fin.vehicleName||deal?.vehicleName||"Vehicle")} • ${money(fin.amountFinanced)} financed</small></span>
+            <span><strong>${money(fin.monthlyPayment)}/mo</strong><small>${Number(fin.termMonths||0)} months</small></span>
+            ${can("finance.manage")?`<button class="btn primary small" data-setup-payment-account="${fin.id}">${icon("receipt-text")} Activate Account</button>`:""}
+          </div>`;
+        }).join("")}
+      </div>
+    </div>`:""}
+
+    <div class="panel no-pad">
+      <div class="panel-head padded-head"><div><span class="eyebrow">PAYMENT SERVICING</span><h2>Vehicle Payment Accounts</h2></div><span class="toolbar-count">${accounts.length} total</span></div>
+      ${accounts.length ? `<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Customer</th><th>Vehicle</th><th>Payment</th><th>Balance</th><th>Next Due</th><th>Status</th><th></th></tr></thead>
+        <tbody>${accounts.map(a=>`<tr class="${a.status==="defaulted"?"payment-default-row":a.status==="repossessed"?"payment-repo-row":""}">
+          <td><strong>${safe(a.customerName||"Customer")}</strong><small class="block">${safe(a.dealNumber||"")}</small></td>
+          <td><strong>${safe(a.vehicleName||"Vehicle")}</strong><small class="block">${safe(a.financeSource||"Sterling Financial")}</small></td>
+          <td><strong>${money(a.monthlyPayment)}/mo</strong><small class="block">${Number(a.paymentsMade||0)} payments posted</small></td>
+          <td><strong>${money(a.currentBalance)}</strong><small class="block">${money(a.totalPaid||0)} paid</small></td>
+          <td>${a.nextDueDate?safe(a.nextDueDate):"—"}<small class="block">${a.lastPaymentDate?`Last ${safe(a.lastPaymentDate)}`:"No payment posted"}</small></td>
+          <td>${statusPill(a.status||"active")}</td>
+          <td><button class="btn secondary small" data-payment-account="${a.id}">${icon("folder-open")} Open Account</button></td>
+        </tr>`).join("")}</tbody>
+      </table></div>` : emptyState("receipt-text","No payment accounts","Financed vehicles will receive a payment account automatically when Delivery is completed.")}
+    </div>
+
+    <div class="panel recovery-pipeline-panel">
+      <div class="panel-head"><div><span class="eyebrow">VEHICLE RECOVERY</span><h2>Repossessed / Taken-Back Vehicles</h2></div><span class="toolbar-count">${recoveries.length} cases</span></div>
+      ${recoveries.length ? `<div class="recovery-case-grid">
+        ${recoveries.map(r=>{
+          const vehicle=state.data.vehicles.find(v=>v.id===r.vehicleId);
+          return `<article class="recovery-case-card">
+            <div class="recovery-case-top"><span class="record-list-icon">${icon("car-front")}</span>${statusPill(r.status||"service_review_required")}</div>
+            <h3>${safe(r.vehicleName||"Recovered Vehicle")}</h3>
+            <p>${safe(r.customerName||"Former customer")} • Balance ${money(r.outstandingBalance)}</p>
+            <small>${safe(r.reason||"No reason recorded")}</small>
+            <div class="recovery-case-actions">
+              ${["service_review_required","reconditioning"].includes(r.status||"") && can("service.manage") ? `<button class="btn secondary small" data-recovery-service-review="${r.id}">${icon("clipboard-check")} Service Review</button>` : ""}
+              ${r.status==="manager_review_required" && isManager() ? `<button class="btn primary small" data-recovery-manager-review="${r.id}">${icon("shield-check")} Manager Review</button>` : ""}
+              ${r.status==="manager_approved" && vehicle?.status==="retail_ready" ? `<span class="recovery-ready-note">${icon("circle-check-big")} Cleared for retail release</span>` : ""}
+            </div>
+          </article>`;
+        }).join("")}
+      </div>` : `<div class="record-list-empty">No vehicle recovery cases.</div>`}
+    </div>
+
+    <div class="rp-disclaimer">${icon("shield-check")} This is a fictional Sterling Motors roleplay ledger. It records simulated payments and vehicle recovery events only; it does not process real payments, collections, lending, or repossession activity.</div>
+  `;
+}
+
+function setupExistingPaymentAccount(finance) {
+  if(!finance)return;
+  const deal=state.data.deals.find(d=>d.id===finance.dealId);
+  const vehicle=state.data.vehicles.find(v=>v.id===deal?.vehicleId);
+  modal("Activate Payment Account",`
+    <div class="payment-account-setup">
+      <span class="record-icon">${icon("receipt-text")}</span>
+      <div><span class="eyebrow">EXISTING FINANCED DELIVERY</span><h3>${safe(finance.customerName||deal?.customerName||"Customer")}</h3><p>${safe(finance.vehicleName||deal?.vehicleName||"Vehicle")}</p></div>
+    </div>
+    <div class="record-grid">
+      <div><span>Amount Financed</span><strong>${money(finance.amountFinanced)}</strong></div>
+      <div><span>Monthly Payment</span><strong>${money(finance.monthlyPayment)}/mo</strong></div>
+      <div><span>Term</span><strong>${Number(finance.termMonths||0)} months</strong></div>
+      <div><span>APR</span><strong>${Number(finance.apr||0).toFixed(2)}%</strong></div>
+    </div>
+    <div class="field full"><label>Next Payment Due</label><input class="plain-input" id="legacyNextDue" type="date" required></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-legacy-account">${icon("receipt-text")} Activate Account</button>`);
+  const next=new Date();next.setMonth(next.getMonth()+1);
+  const input=document.querySelector("#legacyNextDue");if(input)input.value=next.toISOString().slice(0,10);
+  document.querySelector("#confirm-legacy-account")?.addEventListener("click",async()=>{
+    const due=document.querySelector("#legacyNextDue").value;if(!due){setFlash("Choose the next payment due date.","error");return;}
+    const btn=document.querySelector("#confirm-legacy-account");btn.disabled=true;
+    try{
+      const account=await ensurePaymentAccount({
+        financeApplicationId:finance.id,dealId:finance.dealId||"",dealNumber:finance.dealNumber||deal?.dealNumber||"",
+        customerId:finance.customerId||deal?.customerId||"",customerName:finance.customerName||deal?.customerName||"",
+        vehicleId:finance.vehicleId||deal?.vehicleId||vehicle?.id||"",vehicleName:finance.vehicleName||deal?.vehicleName||"",
+        originalBalance:Number(finance.amountFinanced||0),monthlyPayment:Number(finance.monthlyPayment||0),termMonths:Number(finance.termMonths||0),
+        apr:Number(finance.apr||0),financeSource:finance.financeSource||"Sterling Financial",nextDueDate:due,status:"active"
+      },state.user);
+      await updateRecord("financeApplications",finance.id,{paymentAccountId:account.id,paymentAccountStatus:"active"});
+      await writeAudit(state.user,"payments.account_activated","paymentAccount",account.id,{financeApplicationId:finance.id});
+      closeModal();await refreshData();setFlash("Payment account activated.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to activate payment account.","error");}
+  });
+}
+
+function paymentAccountModal(account) {
+  if(!account)return;
+  const tx=(state.data.paymentTransactions||[]).filter(t=>t.paymentAccountId===account.id)
+    .sort((a,b)=>(b.createdAt?.seconds||0)-(a.createdAt?.seconds||0));
+  const vehicle=state.data.vehicles.find(v=>v.id===account.vehicleId);
+  const recovery=state.data.vehicleRecoveryCases.find(r=>r.paymentAccountId===account.id);
+  const pct=Number(account.originalBalance||0)>0 ? Math.min(100,Math.round((Number(account.totalPaid||0)/Number(account.originalBalance||1))*100)) : 0;
+  modal(`Payment Account • ${safe(account.customerName||"Customer")}`,`
+    <div class="payment-account-hero">
+      <div><span class="eyebrow">VEHICLE PAYMENT ACCOUNT</span><h3>${safe(account.vehicleName||"Vehicle")}</h3><p>${safe(account.dealNumber||"")} • ${safe(account.financeSource||"Sterling Financial")}</p></div>
+      ${statusPill(account.status||"active")}
+    </div>
+    <div class="payment-account-kpis">
+      <div><span>Current Balance</span><strong>${money(account.currentBalance)}</strong><small>Original ${money(account.originalBalance)}</small></div>
+      <div><span>Monthly Payment</span><strong>${money(account.monthlyPayment)}</strong><small>${Number(account.termMonths||0)} month term</small></div>
+      <div><span>Next Due</span><strong>${safe(account.nextDueDate||"—")}</strong><small>Last paid ${safe(account.lastPaymentDate||"never")}</small></div>
+      <div><span>Payments Posted</span><strong>${Number(account.paymentsMade||0)}</strong><small>${money(account.totalPaid||0)} total</small></div>
+    </div>
+    <div class="payment-progress"><div><span style="width:${pct}%"></span></div><small>${pct}% of original balance recorded as paid</small></div>
+    ${account.defaultReason?`<div class="payment-default-alert">${icon("triangle-alert")}<div><strong>Default recorded</strong><span>${safe(account.defaultReason)}</span></div></div>`:""}
+    ${recovery?`<div class="payment-recovery-alert">${icon("car-front")}<div><strong>Vehicle recovery case active</strong><span>${safe(recovery.reason)} • ${safe((recovery.status||"").replaceAll("_"," "))}</span></div></div>`:""}
+    <div class="workflow-actions payment-actions">
+      ${can("finance.manage") && ["active","late","defaulted"].includes(account.status||"active") ? `<button class="btn primary" id="record-payment">${icon("circle-dollar-sign")} Record Payment</button>`:""}
+      ${can("finance.manage") && account.status==="active" ? `<button class="btn secondary" id="mark-payment-late">${icon("clock-alert")} Mark Late</button>`:""}
+      ${can("finance.manage") && ["active","late"].includes(account.status||"") ? `<button class="btn danger-btn" id="mark-payment-default">${icon("triangle-alert")} Mark Defaulted</button>`:""}
+      ${can("finance.manage") && account.status==="defaulted" ? `<button class="btn secondary" id="reinstate-payment-account">${icon("rotate-ccw")} Reinstate</button><button class="btn danger-btn" id="repossess-payment-vehicle">${icon("car-front")} Repossess / Take Back</button>`:""}
+    </div>
+    <div class="payment-history">
+      <div class="record-section-head"><div><span class="eyebrow">LEDGER</span><h4>Payment History</h4></div><b>${tx.length}</b></div>
+      ${tx.length?`<div class="payment-history-list">${tx.map(t=>`<div class="payment-history-row">
+        <span class="payment-history-icon">${icon("circle-check-big")}</span>
+        <span><strong>${money(t.amount)}</strong><small>${safe(t.paidDate||"")} • ${safe(t.paymentMethod||"RP Payment")} ${t.reference?`• ${safe(t.reference)}`:""}</small></span>
+        <span><strong>${money(t.balanceAfter)}</strong><small>Balance after</small></span>
+      </div>`).join("")}</div>`:`<div class="record-list-empty">No payments recorded yet.</div>`}
+    </div>
+  `);
+  document.querySelector("#record-payment")?.addEventListener("click",()=>recordVehiclePaymentModal(account));
+  document.querySelector("#mark-payment-late")?.addEventListener("click",async()=>{
+    try{await updateRecord("paymentAccounts",account.id,{status:"late",lateAt:new Date().toISOString(),lateBy:state.user.uid,lateByName:state.profile?.displayName||state.user.email});await writeAudit(state.user,"payments.marked_late","paymentAccount",account.id,{});closeModal();await refreshData();setFlash("Account marked late.");}
+    catch(e){setFlash(e.message||"Unable to mark account late.","error");}
+  });
+  document.querySelector("#mark-payment-default")?.addEventListener("click",()=>defaultPaymentAccountModal(account));
+  document.querySelector("#reinstate-payment-account")?.addEventListener("click",async()=>{
+    try{await updateRecord("paymentAccounts",account.id,{status:"active",defaultReason:"",reinstatedAt:new Date().toISOString(),reinstatedBy:state.user.uid,reinstatedByName:state.profile?.displayName||state.user.email});await writeAudit(state.user,"payments.reinstated","paymentAccount",account.id,{});closeModal();await refreshData();setFlash("Payment account reinstated.");}
+    catch(e){setFlash(e.message||"Unable to reinstate account.","error");}
+  });
+  document.querySelector("#repossess-payment-vehicle")?.addEventListener("click",()=>repossessVehicleModal(account));
+}
+
+function recordVehiclePaymentModal(account) {
+  modal("Record Vehicle Payment",`
+    <div class="payment-post-head"><span class="record-icon">${icon("circle-dollar-sign")}</span><div><span class="eyebrow">POST PAYMENT</span><h3>${safe(account.customerName||"Customer")}</h3><p>${safe(account.vehicleName||"Vehicle")} • Balance ${money(account.currentBalance)}</p></div></div>
+    <form id="record-payment-form" class="form-grid">
+      ${formField("Payment Amount","paymentAmount",String(account.monthlyPayment||0),"number","required min='1'")}
+      ${formField("Payment Date","paymentDate",new Date().toISOString().slice(0,10),"date","required")}
+      <div class="field"><label>RP Payment Method</label><select class="plain-input" id="paymentMethod"><option>Dealer Portal</option><option>Auto Pay</option><option>Phone Payment</option><option>In Person</option><option>RP Payment</option></select></div>
+      <div class="field"><label>Reference <span class="optional-label">Optional</span></label><input class="plain-input" id="paymentReference" placeholder="Receipt / note reference"></div>
+      <div class="field full"><label>Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="paymentNote" placeholder="Internal RP payment note"></textarea></div>
+    </form>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-record-payment">${icon("circle-dollar-sign")} Post Payment</button>`);
+  for(const [id,val] of [["paymentAmount",String(account.monthlyPayment||0)],["paymentDate",new Date().toISOString().slice(0,10)]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
+  document.querySelector("#confirm-record-payment")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#record-payment-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#confirm-record-payment");btn.disabled=true;
+    try{
+      const result=await recordVehiclePayment(account.id,{
+        amount:Number(document.querySelector("#paymentAmount").value||0),
+        paidDate:document.querySelector("#paymentDate").value,
+        paymentMethod:document.querySelector("#paymentMethod").value,
+        reference:document.querySelector("#paymentReference").value.trim(),
+        note:document.querySelector("#paymentNote").value.trim()
+      },state.user);
+      await writeAudit(state.user,"payments.payment_recorded","paymentAccount",account.id,{amount:Number(document.querySelector("#paymentAmount").value||0),balanceAfter:result.balanceAfter});
+      closeModal();await refreshData();setFlash("Vehicle payment recorded.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to record payment.","error");}
+  });
+}
+
+function defaultPaymentAccountModal(account) {
+  modal("Mark Payment Account Defaulted",`
+    <div class="danger-confirm-head">${icon("triangle-alert")}<div><span class="eyebrow">ACCOUNT DEFAULT</span><h3>${safe(account.customerName||"Customer")}</h3><p>${safe(account.vehicleName||"Vehicle")} • Outstanding ${money(account.currentBalance)}</p></div></div>
+    <div class="field full"><label>Default Reason</label><textarea class="plain-input textarea" id="paymentDefaultReason" required placeholder="Explain why this RP payment account is being marked defaulted."></textarea></div>
+    <div class="rp-disclaimer compact">${icon("info")} Marking an account defaulted does not automatically take back the vehicle. Finance can review the account and start a recovery case separately.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn danger-btn" id="confirm-payment-default">${icon("triangle-alert")} Mark Defaulted</button>`);
+  document.querySelector("#confirm-payment-default")?.addEventListener("click",async()=>{
+    const reason=document.querySelector("#paymentDefaultReason").value.trim();if(!reason){setFlash("A default reason is required.","error");return;}
+    const btn=document.querySelector("#confirm-payment-default");btn.disabled=true;
+    try{await markVehiclePaymentDefault(account.id,reason,state.user);await writeAudit(state.user,"payments.defaulted","paymentAccount",account.id,{reason});closeModal();await refreshData();setFlash("Payment account marked defaulted.");}
+    catch(e){btn.disabled=false;setFlash(e.message||"Unable to mark account defaulted.","error");}
+  });
+}
+
+function repossessVehicleModal(account) {
+  modal("Repossess / Take Back Vehicle",`
+    <div class="danger-confirm-head">${icon("car-front")}<div><span class="eyebrow">VEHICLE RECOVERY</span><h3>${safe(account.vehicleName||"Vehicle")}</h3><p>${safe(account.customerName||"Customer")} • Outstanding ${money(account.currentBalance)}</p></div></div>
+    <div class="repossession-warning">${icon("shield-alert")}<div><strong>This immediately removes the vehicle from customer ownership in DRIVE.</strong><span>The vehicle will be locked in Service Intake and cannot return to the sales floor until Service clears it and a manager separately approves the return.</span></div></div>
+    <div class="field full"><label>Repossession / Take-Back Reason</label><textarea class="plain-input textarea tall-textarea" id="repossessionReason" required placeholder="Required: document the fictional RP reason for recovering this vehicle."></textarea></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn danger-btn" id="confirm-repossess">${icon("car-front")} Recover Vehicle</button>`);
+  document.querySelector("#confirm-repossess")?.addEventListener("click",async()=>{
+    const reason=document.querySelector("#repossessionReason").value.trim();if(!reason){setFlash("A recovery reason is required.","error");return;}
+    const btn=document.querySelector("#confirm-repossess");btn.disabled=true;
+    try{
+      const recovery=await repossessVehicleFromAccount(account,reason,state.user);
+      await createNotification({type:"service",title:"Recovered vehicle requires Service review",message:`${account.vehicleName||"Vehicle"} was taken back and is locked pending Service inspection.`,vehicleId:account.vehicleId,recoveryCaseId:recovery.id},state.user);
+      await writeAudit(state.user,"payments.vehicle_repossessed","vehicleRecoveryCase",recovery.id,{paymentAccountId:account.id,vehicleId:account.vehicleId,reason});
+      closeModal();await refreshData();setFlash("Vehicle recovered and sent to Service review.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to recover vehicle.","error");}
+  });
+}
+
+function recoveryServiceReviewModal(recovery) {
+  if(!recovery)return;
+  const vehicle=state.data.vehicles.find(v=>v.id===recovery.vehicleId);
+  modal("Recovered Vehicle Service Review",`
+    <div class="ro-detail-hero"><div class="record-icon">${icon("wrench")}</div><div><span class="eyebrow">RECOVERY INSPECTION</span><h3>${safe(recovery.vehicleName||"Recovered Vehicle")}</h3><p>${safe(recovery.customerName||"Former customer")} • ${safe(vehicle?.stockNumber||"")}</p></div>${statusPill(recovery.status||"service_review_required")}</div>
+    <div class="manager-note"><span>RECOVERY REASON</span><p>${safe(recovery.reason||"—")}</p></div>
+    <form id="recovery-service-form" class="form-grid">
+      <div class="field"><label>Mechanical</label><select class="plain-input" id="rsiMechanical"><option>Pass</option><option>Repair Required</option><option>Fail - Wholesale</option></select></div>
+      <div class="field"><label>Brakes</label><select class="plain-input" id="rsiBrakes"><option>Pass</option><option>Service Recommended</option><option>Repair Required</option></select></div>
+      <div class="field"><label>Tires</label><select class="plain-input" id="rsiTires"><option>Pass</option><option>Replace Soon</option><option>Replacement Required</option></select></div>
+      <div class="field"><label>Safety Systems</label><select class="plain-input" id="rsiSafety"><option>Pass</option><option>Repair Required</option><option>Fail</option></select></div>
+      ${formField("Estimated Reconditioning","rsiRecon",String(recovery.reconditioningEstimate||0),"number","required min='0'")}
+      <div class="field"><label>Service Decision</label><select class="plain-input" id="rsiDecision"><option value="manager_review">Clear for Manager Review</option><option value="reconditioning">Needs Reconditioning</option><option value="wholesale">Do Not Return to Retail</option></select></div>
+      <div class="field full"><label>Service Notes</label><textarea class="plain-input textarea" id="rsiNotes" required placeholder="Inspection findings and work required...">${safe(recovery.serviceReviewNotes||"")}</textarea></div>
+    </form>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-recovery-service">${icon("clipboard-check")} Complete Service Review</button>`);
+  document.querySelector("#save-recovery-service")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#recovery-service-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#save-recovery-service");btn.disabled=true;
+    const decision=document.querySelector("#rsiDecision").value;
+    const notes=document.querySelector("#rsiNotes").value.trim();
+    const recon=Number(document.querySelector("#rsiRecon").value||0);
+    const status=decision==="manager_review"?"manager_review_required":decision==="reconditioning"?"reconditioning":"wholesale";
+    const vehicleStatus=decision==="manager_review"?"repossession_manager_review":decision==="reconditioning"?"reconditioning":"wholesale";
+    try{
+      await updateRecord("vehicleRecoveryCases",recovery.id,{
+        status,serviceReviewStatus:decision==="manager_review"?"approved":decision,serviceReviewNotes:notes,reconditioningEstimate:recon,
+        serviceInspection:{mechanical:document.querySelector("#rsiMechanical").value,brakes:document.querySelector("#rsiBrakes").value,tires:document.querySelector("#rsiTires").value,safety:document.querySelector("#rsiSafety").value},
+        serviceReviewedBy:state.user.uid,serviceReviewedByName:state.profile?.displayName||state.user.email,serviceReviewedAt:new Date().toISOString()
+      });
+      if(vehicle) await updateRecord("vehicles",vehicle.id,{status:vehicleStatus,location:decision==="manager_review"?"Recovery Hold / Manager Review":decision==="reconditioning"?"Service / Recovery Reconditioning":"Wholesale Hold",serviceReviewStatus:decision,serviceReviewNotes:notes,reconditioningEstimate:recon});
+      if(decision==="manager_review") await createNotification({type:"approval",title:"Recovered vehicle needs manager approval",message:`${recovery.vehicleName||"Vehicle"} passed Service review and is waiting for management before retail release.`,vehicleId:recovery.vehicleId,recoveryCaseId:recovery.id},state.user);
+      await writeAudit(state.user,"recovery.service_review_completed","vehicleRecoveryCase",recovery.id,{decision,reconditioningEstimate:recon});
+      closeModal();await refreshData();setFlash(decision==="manager_review"?"Service approved the vehicle. Manager approval is now required.":decision==="reconditioning"?"Vehicle remains in reconditioning.":"Vehicle marked wholesale / not eligible for retail return.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to complete recovery Service review.","error");}
+  });
+}
+
+function recoveryManagerApprovalModal(recovery) {
+  if(!recovery)return;
+  const vehicle=state.data.vehicles.find(v=>v.id===recovery.vehicleId);
+  modal("Manager Return-to-Retail Review",`
+    <div class="manager-recovery-hero"><span class="record-icon">${icon("shield-check")}</span><div><span class="eyebrow">FINAL RETAIL GATE</span><h3>${safe(recovery.vehicleName||"Recovered Vehicle")}</h3><p>Service approved • Reconditioning ${money(recovery.reconditioningEstimate||0)}</p></div></div>
+    <div class="manager-note"><span>SERVICE FINDINGS</span><p>${safe(recovery.serviceReviewNotes||"No Service notes recorded.")}</p></div>
+    <div class="field full"><label>Manager Decision Note</label><textarea class="plain-input textarea" id="recoveryManagerNote" required placeholder="Document why this vehicle may or may not return to retail."></textarea></div>
+    <div class="rp-disclaimer compact">${icon("shield-check")} Approval does not place the vehicle on the sales floor. It only unlocks the normal Retail Ready → Push to Sales Floor process.</div>
+  `,`<button class="btn secondary" id="reject-recovery-retail">${icon("rotate-ccw")} Return to Service</button><button class="btn primary" id="approve-recovery-retail">${icon("shield-check")} Approve for Retail</button>`);
+
+  const decide=async approved=>{
+    const note=document.querySelector("#recoveryManagerNote").value.trim();if(!note){setFlash("A manager decision note is required.","error");return;}
+    const a=document.querySelector("#approve-recovery-retail"),b=document.querySelector("#reject-recovery-retail");if(a)a.disabled=true;if(b)b.disabled=true;
+    try{
+      if(approved){
+        await updateRecord("vehicleRecoveryCases",recovery.id,{status:"manager_approved",managerApprovalStatus:"approved",managerApprovalNote:note,managerApprovedBy:state.user.uid,managerApprovedByName:state.profile?.displayName||state.user.email,managerApprovedAt:new Date().toISOString()});
+        if(vehicle) await updateRecord("vehicles",vehicle.id,{status:"retail_ready",location:"Retail Ready Holding",recoveryHold:true,recoveryManagerApprovedBy:state.user.uid,recoveryManagerApprovedByName:state.profile?.displayName||state.user.email,recoveryManagerApprovedAt:new Date().toISOString()});
+        await writeAudit(state.user,"recovery.manager_approved","vehicleRecoveryCase",recovery.id,{vehicleId:recovery.vehicleId,note});
+        closeModal();await refreshData();setFlash("Manager approved the recovered vehicle for retail release.");
+      }else{
+        await updateRecord("vehicleRecoveryCases",recovery.id,{status:"reconditioning",managerApprovalStatus:"returned_to_service",managerApprovalNote:note});
+        if(vehicle) await updateRecord("vehicles",vehicle.id,{status:"reconditioning",location:"Service / Recovery Reconditioning"});
+        await writeAudit(state.user,"recovery.returned_to_service","vehicleRecoveryCase",recovery.id,{vehicleId:recovery.vehicleId,note});
+        closeModal();await refreshData();setFlash("Vehicle returned to Service / reconditioning.");
+      }
+    }catch(e){if(a)a.disabled=false;if(b)b.disabled=false;setFlash(e.message||"Unable to save manager decision.","error");}
+  };
+  document.querySelector("#approve-recovery-retail")?.addEventListener("click",()=>decide(true));
+  document.querySelector("#reject-recovery-retail")?.addEventListener("click",()=>decide(false));
+}
+
 function financePage() {
   const financeDeals = state.data.deals.filter(d => ["finance","documents","delivery"].includes((d.stage || "").toLowerCase()));
   const approved = state.data.financeApplications.filter(x => ["approved","finalized","revised"].includes((x.status || "").toLowerCase())).length;
