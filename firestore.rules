@@ -66,6 +66,17 @@ service cloud.firestore {
         permitted('finance.manage') ||
         permitted('admin.full') ||
         (permitted('acquisitions.manage') && resource.data.sourceAcquisitionId is string) ||
+        (permitted('deals.approve') &&
+          resource.data.sourceRecoveryCaseId is string &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'location',
+            'recoveryHold',
+            'recoveryManagerApprovedBy',
+            'recoveryManagerApprovedByName',
+            'recoveryManagerApprovedAt',
+            'updatedAt'
+          ])) ||
         (permitted('service.manage') &&
           request.resource.data.diff(resource.data).affectedKeys().hasOnly([
             'status',
@@ -234,6 +245,63 @@ service cloud.firestore {
     }
 
 
+
+
+    match /paymentAccounts/{id} {
+      allow read: if activeStaff();
+      allow create, update: if permitted('finance.manage') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
+    match /paymentTransactions/{id} {
+      allow read: if activeStaff();
+      allow create: if permitted('finance.manage') || permitted('admin.full');
+      allow update, delete: if permitted('admin.full');
+    }
+
+    match /vehicleRecoveryCases/{id} {
+      allow read: if activeStaff();
+      allow create: if permitted('finance.manage') || permitted('admin.full');
+      allow update: if
+        permitted('admin.full') ||
+        (permitted('finance.manage') &&
+          !request.resource.data.diff(resource.data).affectedKeys().hasAny([
+            'serviceReviewStatus',
+            'serviceReviewNotes',
+            'serviceInspection',
+            'serviceReviewedBy',
+            'serviceReviewedByName',
+            'serviceReviewedAt',
+            'managerApprovalStatus',
+            'managerApprovalNote',
+            'managerApprovedBy',
+            'managerApprovedByName',
+            'managerApprovedAt'
+          ])) ||
+        (permitted('service.manage') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'serviceReviewStatus',
+            'serviceReviewNotes',
+            'serviceInspection',
+            'reconditioningEstimate',
+            'serviceReviewedBy',
+            'serviceReviewedByName',
+            'serviceReviewedAt',
+            'updatedAt'
+          ])) ||
+        (permitted('deals.approve') &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'managerApprovalStatus',
+            'managerApprovalNote',
+            'managerApprovedBy',
+            'managerApprovedByName',
+            'managerApprovedAt',
+            'updatedAt'
+          ]));
+      allow delete: if permitted('admin.full');
+    }
 
     match /financeCustomerProfiles/{id} {
       allow read, create, update: if permitted('finance.manage') || permitted('admin.full');
