@@ -541,3 +541,166 @@ export async function saveFinanceCustomerProfile(profileId, data, actor) {
   await setDoc(ref, payload, { merge: true });
   return { id: profileId };
 }
+
+
+function addMonthsToDateString(value, months = 1) {
+  const base = value ? new Date(value + "T12:00:00") : new Date();
+  if (Number.isNaN(base.getTime())) return "";
+  base.setMonth(base.getMonth() + months);
+  return base.toISOString().slice(0, 10);
+}
+
+export async function ensurePaymentAccount(data, actor) {
+  const id = data.financeApplicationId || data.dealId;
+  if (!id) throw new Error("A Finance package or Deal Jacket is required.");
+  const ref = doc(db, "paymentAccounts", id);
+  const snapshot = await getDoc(ref);
+  const existing = snapshot.exists() ? snapshot.data() : null;
+  const originalBalance = Number(data.originalBalance ?? data.amountFinanced ?? existing?.originalBalance ?? 0);
+  const currentBalance = existing ? Number(existing.currentBalance ?? originalBalance) : originalBalance;
+  const payload = {
+    ...data,
+    originalBalance,
+    currentBalance,
+    monthlyPayment: Number(data.monthlyPayment ?? existing?.monthlyPayment ?? 0),
+    termMonths: Number(data.termMonths ?? existing?.termMonths ?? 0),
+    paymentsMade: Number(existing?.paymentsMade || 0),
+    totalPaid: Number(existing?.totalPaid || 0),
+    status: existing?.status || data.status || "active",
+    updatedBy: actor.uid,
+    updatedByName: actor.displayName || actor.email || "Sterling Finance",
+    updatedAt: serverTimestamp()
+  };
+  if (!existing) {
+    payload.createdBy = actor.uid;
+    payload.createdByName = actor.displayName || actor.email || "Sterling Finance";
+    payload.createdAt = serverTimestamp();
+  }
+  await setDoc(ref, payload, { merge: true });
+  return { id };
+}
+
+export async function recordVehiclePayment(accountId, data, actor) {
+  const accountRef = doc(db, "paymentAccounts", accountId);
+  const snapshot = await getDoc(accountRef);
+  if (!snapshot.exists()) throw new Error("Payment account not found.");
+  const account = snapshot.data();
+  if (["repossessed", "closed"].includes(account.status || "")) throw new Error("Payments cannot be posted to this closed account.");
+
+  const amount = Math.max(0, Number(data.amount || 0));
+  if (!amount) throw new Error("Enter a payment amount.");
+  const balanceBefore = Number(account.currentBalance ?? account.originalBalance ?? 0);
+  const balanceAfter = Math.max(0, balanceBefore - amount);
+  const paymentRef = doc(collection(db, "paymentTransactions"));
+  const paidDate = data.paidDate || new Date().toISOString().slice(0, 10);
+  const nextDueDate = balanceAfter <= 0 ? "" : addMonthsToDateString(account.nextDueDate || paidDate, 1);
+  const nextStatus = balanceAfter <= 0 ? "paid_off" : (account.status === "defaulted" ? "defaulted" : "active");
+  const batch = writeBatch(db);
+
+  batch.set(paymentRef, {
+    paymentAccountId: accountId,
+    dealId: account.dealId || "",
+    financeApplicationId: account.financeApplicationId || "",
+    customerId: account.customerId || "",
+    customerName: account.customerName || "",
+    vehicleId: account.vehicleId || "",
+    vehicleName: account.vehicleName || "",
+    amount,
+    paymentMethod: data.paymentMethod || "RP Payment",
+    reference: data.reference || "",
+    note: data.note || "",
+    balanceBefore,
+    balanceAfter,
+    paidDate,
+    recordedBy: actor.uid,
+    recordedByName: actor.displayName || actor.email || "Sterling Finance",
+    createdAt: serverTimestamp()
+  });
+
+  batch.update(accountRef, {
+    currentBalance: balanceAfter,
+    totalPaid: Number(account.totalPaid || 0) + amount,
+    paymentsMade: Number(account.paymentsMade || 0) + 1,
+    lastPaymentAmount: amount,
+    lastPaymentDate: paidDate,
+    nextDueDate,
+    status: nextStatus,
+    updatedBy: actor.uid,
+    updatedByName: actor.displayName || actor.email || "Sterling Finance",
+    updatedAt: serverTimestamp()
+  });
+
+  await batch.commit();
+  return { id: paymentRef.id, balanceAfter };
+}
+
+export async function markVehiclePaymentDefault(accountId, reason, actor) {
+  if (!String(reason || "").trim()) throw new Error("A default reason is required.");
+  return updateDoc(doc(db, "paymentAccounts", accountId), {
+    status: "defaulted",
+    defaultReason: String(reason).trim(),
+    defaultedAt: serverTimestamp(),
+    defaultedBy: actor.uid,
+    defaultedByName: actor.displayName || actor.email || "Sterling Finance",
+    updatedAt: serverTimestamp()
+  });
+}
+
+export async function repossessVehicleFromAccount(account, reason, actor) {
+  if (!account?.id) throw new Error("Payment account is missing.");
+  if (!account.vehicleId) throw new Error("No vehicle is linked to this payment account.");
+  if (!String(reason || "").trim()) throw new Error("A repossession / take-back reason is required.");
+
+  const recoveryId = account.id;
+  const recoveryRef = doc(db, "vehicleRecoveryCases", recoveryId);
+  const recoverySnapshot = await getDoc(recoveryRef);
+  const vehicleRef = doc(db, "vehicles", account.vehicleId);
+  const accountRef = doc(db, "paymentAccounts", account.id);
+  const batch = writeBatch(db);
+
+  batch.set(recoveryRef, {
+    paymentAccountId: account.id,
+    financeApplicationId: account.financeApplicationId || "",
+    dealId: account.dealId || "",
+    customerId: account.customerId || "",
+    customerName: account.customerName || "",
+    vehicleId: account.vehicleId,
+    vehicleName: account.vehicleName || "",
+    reason: String(reason).trim(),
+    outstandingBalance: Number(account.currentBalance || 0),
+    status: "service_review_required",
+    serviceReviewStatus: "pending",
+    managerApprovalStatus: "pending_service",
+    recoveredBy: actor.uid,
+    recoveredByName: actor.displayName || actor.email || "Sterling Finance",
+    recoveredAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+    ...(recoverySnapshot.exists() ? {} : { createdAt: serverTimestamp() })
+  }, { merge: true });
+
+  batch.update(accountRef, {
+    status: "repossessed",
+    recoveryCaseId: recoveryId,
+    repossessionReason: String(reason).trim(),
+    repossessedAt: serverTimestamp(),
+    repossessedBy: actor.uid,
+    repossessedByName: actor.displayName || actor.email || "Sterling Finance",
+    updatedAt: serverTimestamp()
+  });
+
+  batch.update(vehicleRef, {
+    status: "repossessed_service_review",
+    location: "Service Intake / Recovery Inspection",
+    sourceRecoveryCaseId: recoveryId,
+    recoveryHold: true,
+    repossessionReason: String(reason).trim(),
+    formerOwnerCustomerId: account.customerId || "",
+    formerOwnerCustomerName: account.customerName || "",
+    ownerCustomerId: "",
+    ownerCustomerName: "",
+    updatedAt: serverTimestamp()
+  });
+
+  await batch.commit();
+  return { id: recoveryId };
+}
