@@ -1177,7 +1177,7 @@ function financePage() {
 
   return `
     ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, payment strategy, F&I packages, consultations, follow-up, contracts, and final vehicle delivery.",
-      `<button class="btn secondary" id="open-payment-lab">${icon("sliders-horizontal")} Payment Lab</button><button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Appointments</button>`)}
+      `<button class="btn secondary" data-page="payments">${icon("receipt-text")} Payments</button><button class="btn secondary" id="open-payment-lab">${icon("sliders-horizontal")} Payment Lab</button><button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Appointments</button>`)}
 
     <div class="metric-grid">
       ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
@@ -4267,6 +4267,10 @@ function bindApp() {
     const term=e.currentTarget.value.toLowerCase().trim();
     document.querySelectorAll("#finance-customer-rows tr").forEach(row=>row.style.display=(row.dataset.search||"").includes(term)?"":"none");
   });
+  document.querySelectorAll("[data-payment-account]").forEach(btn => btn.addEventListener("click", () => paymentAccountModal(state.data.paymentAccounts.find(a=>a.id===btn.dataset.paymentAccount))));
+  document.querySelectorAll("[data-setup-payment-account]").forEach(btn => btn.addEventListener("click", () => setupExistingPaymentAccount(state.data.financeApplications.find(a=>a.id===btn.dataset.setupPaymentAccount))));
+  document.querySelectorAll("[data-recovery-service-review]").forEach(btn => btn.addEventListener("click", () => recoveryServiceReviewModal(state.data.vehicleRecoveryCases.find(r=>r.id===btn.dataset.recoveryServiceReview))));
+  document.querySelectorAll("[data-recovery-manager-review]").forEach(btn => btn.addEventListener("click", () => recoveryManagerApprovalModal(state.data.vehicleRecoveryCases.find(r=>r.id===btn.dataset.recoveryManagerReview))));
   document.querySelectorAll("[data-finance-appointment]").forEach(btn => btn.addEventListener("click", () => manageFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.financeAppointment))));
   document.querySelectorAll("[data-cancel-finance-appointment]").forEach(btn => btn.addEventListener("click", () => cancelFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.cancelFinanceAppointment),false)));
   document.querySelectorAll("[data-finance-deal]").forEach(btn => btn.addEventListener("click", () => {
