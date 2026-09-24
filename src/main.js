@@ -863,6 +863,337 @@ function financeProfileId(client) {
   return `contact_${String(client.email||client.name||client.key||"finance").replace(/[^A-Za-z0-9_-]/g,"_").slice(0,90)}`;
 }
 
+function dealershipFinancePage() {
+  if(!isManager()) return dashboard();
+
+  const ledger=(state.data.dealershipLedger||[]).filter(x=>(x.status||"posted")!=="voided");
+  const allLedger=state.data.dealershipLedger||[];
+  const accounts=state.data.paymentAccounts||[];
+  const payments=state.data.paymentTransactions||[];
+  const financeApps=state.data.financeApplications||[];
+  const vehicles=state.data.vehicles||[];
+  const deals=state.data.deals||[];
+  const parts=state.data.parts||[];
+  const recoveries=state.data.vehicleRecoveryCases||[];
+
+  const ledgerInflows=ledger.filter(x=>x.direction==="inflow").reduce((s,x)=>s+Number(x.amount||0),0);
+  const ledgerOutflows=ledger.filter(x=>x.direction==="outflow").reduce((s,x)=>s+Number(x.amount||0),0);
+  const operatingCash=ledgerInflows-ledgerOutflows;
+  const paymentsCollected=payments.reduce((s,x)=>s+Number(x.amount||0),0);
+  const openAccounts=accounts.filter(a=>!["paid_off","closed"].includes(a.status||""));
+  const receivables=openAccounts.reduce((s,a)=>s+Number(a.currentBalance||0),0);
+  const financingOriginated=accounts.reduce((s,a)=>s+Number(a.originalBalance||0),0);
+  const defaultExposure=accounts.filter(a=>["defaulted","repossessed"].includes(a.status||"")).reduce((s,a)=>s+Number(a.currentBalance||0),0);
+  const paidOffAccounts=accounts.filter(a=>(a.status||"")==="paid_off").length;
+
+  const completedDeals=deals.filter(d=>(d.stage||"").toLowerCase()==="complete");
+  const salesRevenue=completedDeals.reduce((s,d)=>s+Number(d.finalPrice||d.counterPrice||d.price||0),0);
+  const financeByDeal=new Map(financeApps.map(x=>[x.dealId,x]));
+  const vehicleById=new Map(vehicles.map(v=>[v.id,v]));
+  const tradeById=new Map((state.data.tradeIns||[]).map(t=>[t.id,t]));
+  const acquisitionById=new Map((state.data.vehicleAcquisitions||[]).map(a=>[a.id,a]));
+
+  const vehicleCost=v=>{
+    if(!v)return 0;
+    if(Number(v.acquisitionCost||0)>0)return Number(v.acquisitionCost||0);
+    if(v.sourceTradeId){
+      const t=tradeById.get(v.sourceTradeId);
+      return Number(t?.managerApprovedAcv ?? t?.acv ?? 0);
+    }
+    if(v.sourceAcquisitionId){
+      const a=acquisitionById.get(v.sourceAcquisitionId);
+      return Number(a?.offerAmount||0);
+    }
+    return 0;
+  };
+
+  const unsoldVehicles=vehicles.filter(v=>!["sold"].includes((v.status||"").toLowerCase()));
+  const inventoryKnown=unsoldVehicles.filter(v=>vehicleCost(v)>0);
+  const inventoryCost=inventoryKnown.reduce((s,v)=>s+vehicleCost(v),0);
+  const inventoryRetail=unsoldVehicles.reduce((s,v)=>s+Number(v.price||0),0);
+  const unknownCostUnits=unsoldVehicles.filter(v=>vehicleCost(v)<=0).length;
+  const reconExposure=unsoldVehicles.reduce((s,v)=>s+Number(v.reconditioningEstimate||0),0);
+  const partsInventory=parts.reduce((s,p)=>s+(Number(p.cost||0)*Number(p.quantity||0)),0);
+
+  const soldGrossRows=completedDeals.map(d=>{
+    const v=vehicleById.get(d.vehicleId);
+    const cost=vehicleCost(v);
+    const recon=Number(v?.reconditioningEstimate||0);
+    const sale=Number(d.finalPrice||d.counterPrice||d.price||0);
+    const fin=financeByDeal.get(d.id);
+    return {deal:d,vehicle:v,sale,cost,recon,frontGross:cost>0?sale-cost-recon:null,finance:fin};
+  });
+  const knownGrossRows=soldGrossRows.filter(x=>x.frontGross!=null);
+  const frontGross=knownGrossRows.reduce((s,x)=>s+Number(x.frontGross||0),0);
+  const fAndIProducts=soldGrossRows.reduce((s,x)=>s+Number(x.finance?.productTotal||0),0);
+  const averageDeal=completedDeals.length?salesRevenue/completedDeals.length:0;
+  const averageFrontGross=knownGrossRows.length?frontGross/knownGrossRows.length:0;
+  const financedCompleted=soldGrossRows.filter(x=>Number(x.finance?.amountFinanced||0)>0);
+  const financePenetration=completedDeals.length?Math.round(financedCompleted.length/completedDeals.length*100):0;
+  const productDeals=financedCompleted.filter(x=>(x.finance?.products||[]).length>0);
+  const productAttach=financedCompleted.length?Math.round(productDeals.length/financedCompleted.length*100):0;
+  const defaultRate=accounts.length?Math.round(accounts.filter(a=>["defaulted","repossessed"].includes(a.status||"")).length/accounts.length*100):0;
+  const collectionRate=financingOriginated?Math.round(paymentsCollected/financingOriginated*100):0;
+  const fundingExceptions=financeApps.filter(x=>(x.fundingStatus||"")==="exception").length;
+  const activeRecoveries=recoveries.filter(x=>!["sales_floor","wholesale","closed"].includes(x.status||"")).length;
+  const trackedCapital=operatingCash+receivables+inventoryCost+partsInventory;
+
+  const dateFrom=value=>{
+    if(!value)return null;
+    if(value?.toDate)return value.toDate();
+    const d=new Date(value);
+    return Number.isNaN(d.getTime())?null:d;
+  };
+  const months=[];
+  const now=new Date();
+  for(let offset=5;offset>=0;offset--){
+    const d=new Date(now.getFullYear(),now.getMonth()-offset,1);
+    months.push({
+      key:`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`,
+      label:d.toLocaleDateString("en-US",{month:"short"}),
+      sales:0,payments:0,inflows:0,outflows:0
+    });
+  }
+  const monthMap=new Map(months.map(x=>[x.key,x]));
+  for(const row of soldGrossRows){
+    const delivery=(state.data.deliveries||[]).find(x=>x.dealId===row.deal.id);
+    const d=dateFrom(delivery?.updatedAt||row.deal.updatedAt||row.deal.createdAt);
+    if(d){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(monthMap.has(key))monthMap.get(key).sales+=row.sale;}
+  }
+  for(const tx of payments){
+    const d=dateFrom(tx.paidDate||tx.createdAt);
+    if(d){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(monthMap.has(key))monthMap.get(key).payments+=Number(tx.amount||0);}
+  }
+  for(const entry of ledger){
+    const d=dateFrom(entry.entryDate||entry.createdAt);
+    if(d){const key=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}`;if(monthMap.has(key)){if(entry.direction==="inflow")monthMap.get(key).inflows+=Number(entry.amount||0);else monthMap.get(key).outflows+=Number(entry.amount||0);}}
+  }
+  const chartMax=Math.max(1,...months.flatMap(x=>[x.sales,x.payments,x.inflows,x.outflows]));
+
+  const ledgerCategoryTotals={};
+  for(const entry of ledger){
+    const key=entry.category||"Other";
+    if(!ledgerCategoryTotals[key])ledgerCategoryTotals[key]={inflow:0,outflow:0};
+    ledgerCategoryTotals[key][entry.direction==="inflow"?"inflow":"outflow"]+=Number(entry.amount||0);
+  }
+  const topOutflows=Object.entries(ledgerCategoryTotals).map(([category,x])=>({category,amount:x.outflow})).filter(x=>x.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,5);
+  const maxOutflow=Math.max(1,...topOutflows.map(x=>x.amount));
+
+  return `
+    ${pageHeader("EXECUTIVE FINANCE","Dealership Finance","Manager-only financial command center for Sterling Motor Group operations, capital, sales, receivables, inventory, and risk.",
+      `<button class="btn secondary" data-page="payments">${icon("receipt-text")} Payments & Recovery</button><button class="btn secondary" data-page="finance">${icon("landmark")} Customer F&I</button><button class="btn primary" id="new-dealership-ledger">${icon("plus")} Ledger Entry</button>`)}
+
+    <div class="dealer-finance-position">
+      <article class="finance-position-card primary-position">
+        <span class="position-icon">${icon("wallet-cards")}</span>
+        <div><small>OPERATING CASH • MANAGER LEDGER</small><strong>${money(operatingCash)}</strong><span>${money(ledgerInflows)} in • ${money(ledgerOutflows)} out</span></div>
+      </article>
+      <article class="finance-position-card">
+        <span class="position-icon">${icon("landmark")}</span>
+        <div><small>OUTSTANDING RECEIVABLES</small><strong>${money(receivables)}</strong><span>${openAccounts.length} open payment accounts</span></div>
+      </article>
+      <article class="finance-position-card">
+        <span class="position-icon">${icon("warehouse")}</span>
+        <div><small>INVENTORY CAPITAL • KNOWN COST</small><strong>${money(inventoryCost)}</strong><span>${inventoryKnown.length} units with cost basis • ${unknownCostUnits} unknown</span></div>
+      </article>
+      <article class="finance-position-card tracked-position">
+        <span class="position-icon">${icon("chart-no-axes-combined")}</span>
+        <div><small>TRACKED OPERATING CAPITAL</small><strong>${money(trackedCapital)}</strong><span>Cash + receivables + known inventory + parts</span></div>
+      </article>
+    </div>
+
+    <div class="dealer-finance-metrics">
+      <article><span>${icon("badge-dollar-sign")}</span><div><small>Closed Vehicle Sales</small><strong>${money(salesRevenue)}</strong><em>${completedDeals.length} completed deals</em></div></article>
+      <article><span>${icon("banknote-arrow-down")}</span><div><small>Recorded Cash Outflow</small><strong>${money(ledgerOutflows)}</strong><em>Management ledger</em></div></article>
+      <article><span>${icon("circle-dollar-sign")}</span><div><small>Payments Collected</small><strong>${money(paymentsCollected)}</strong><em>${payments.length} posted payments</em></div></article>
+      <article><span>${icon("file-chart-column-increasing")}</span><div><small>Financing Originated</small><strong>${money(financingOriginated)}</strong><em>${accounts.length} delivered contracts</em></div></article>
+      <article><span>${icon("trending-up")}</span><div><small>Known Front Gross</small><strong>${money(frontGross)}</strong><em>Cost basis known on ${knownGrossRows.length}/${completedDeals.length} sold units</em></div></article>
+      <article><span>${icon("shield-plus")}</span><div><small>F&I Products Sold</small><strong>${money(fAndIProducts)}</strong><em>Product selling price, not net profit</em></div></article>
+    </div>
+
+    <div class="dealer-finance-grid">
+      <section class="panel finance-balance-panel">
+        <div class="panel-head"><div><span class="eyebrow">POSITION</span><h2>Tracked Capital Position</h2></div><span class="finance-asof">As of now</span></div>
+        <div class="finance-balance-sheet">
+          <div class="balance-line"><span>Operating Cash • ledger</span><strong>${money(operatingCash)}</strong></div>
+          <div class="balance-line"><span>Customer Receivables</span><strong>${money(receivables)}</strong></div>
+          <div class="balance-line"><span>Vehicle Inventory • known cost</span><strong>${money(inventoryCost)}</strong></div>
+          <div class="balance-line"><span>Parts Inventory • cost</span><strong>${money(partsInventory)}</strong></div>
+          <div class="balance-total"><span>Tracked Operating Capital</span><strong>${money(trackedCapital)}</strong></div>
+        </div>
+        <div class="finance-position-note">${icon("info")} This is an operational DRIVE view, not a GAAP balance sheet. Unknown vehicle cost bases are intentionally excluded rather than estimated.</div>
+      </section>
+
+      <section class="panel finance-risk-panel">
+        <div class="panel-head"><div><span class="eyebrow">RISK & COMMITMENTS</span><h2>Management Exposure</h2></div></div>
+        <div class="risk-stack">
+          <button data-page="payments"><span class="risk-icon danger">${icon("triangle-alert")}</span><span><small>Default / Recovery Balance</small><strong>${money(defaultExposure)}</strong><em>${activeRecoveries} active recovery cases</em></span>${icon("chevron-right")}</button>
+          <div><span class="risk-icon warn">${icon("wrench")}</span><span><small>Reconditioning Exposure</small><strong>${money(reconExposure)}</strong><em>Estimated work on unsold inventory</em></span></div>
+          <div><span class="risk-icon">${icon("circle-help")}</span><span><small>Unknown Inventory Cost</small><strong>${unknownCostUnits} units</strong><em>Excluded from known-cost capital/gross</em></span></div>
+          <div><span class="risk-icon ${fundingExceptions?"danger":""}">${icon("landmark")}</span><span><small>Funding Exceptions</small><strong>${fundingExceptions}</strong><em>Finance packages requiring attention</em></span></div>
+        </div>
+      </section>
+    </div>
+
+    <section class="panel dealership-performance-panel">
+      <div class="panel-head"><div><span class="eyebrow">OPERATING PERFORMANCE</span><h2>Dealership Ratios</h2></div><span class="toolbar-count">Manager view</span></div>
+      <div class="finance-ratio-grid">
+        ${[
+          ["Finance Penetration",financePenetration,"%","Completed deals using financing"],
+          ["F&I Product Attach",productAttach,"%","Financed deals with ≥1 product"],
+          ["Payment Collection",collectionRate,"%","Payments collected vs originated balance"],
+          ["Default Rate",defaultRate,"%","Defaulted/repossessed payment accounts"]
+        ].map(([label,value,suffix,copy])=>`<article>
+          <div><span>${label}</span><strong>${value}${suffix}</strong></div>
+          <div class="ratio-track"><span style="width:${Math.min(100,Number(value||0))}%"></span></div>
+          <small>${copy}</small>
+        </article>`).join("")}
+      </div>
+      <div class="finance-average-strip">
+        <div><span>Average Closed Deal</span><strong>${money(averageDeal)}</strong></div>
+        <div><span>Average Known Front Gross</span><strong>${money(averageFrontGross)}</strong></div>
+        <div><span>Inventory Retail Value</span><strong>${money(inventoryRetail)}</strong></div>
+        <div><span>Paid-Off Accounts</span><strong>${paidOffAccounts}</strong></div>
+      </div>
+    </section>
+
+    <div class="dealer-finance-grid">
+      <section class="panel finance-trend-panel">
+        <div class="panel-head"><div><span class="eyebrow">6-MONTH VIEW</span><h2>Operational Money Movement</h2></div></div>
+        <div class="finance-chart-legend"><span class="sales-key"></span>Vehicle sales <span class="payment-key"></span>Payments <span class="inflow-key"></span>Ledger inflow <span class="outflow-key"></span>Ledger outflow</div>
+        <div class="finance-month-chart">
+          ${months.map(m=>`<div class="finance-month-row">
+            <strong>${m.label}</strong>
+            <div class="month-bars">
+              <span class="month-bar sales" style="width:${Math.max(m.sales?2:0,m.sales/chartMax*100)}%" title="Sales ${money(m.sales)}"></span>
+              <span class="month-bar payments" style="width:${Math.max(m.payments?2:0,m.payments/chartMax*100)}%" title="Payments ${money(m.payments)}"></span>
+              <span class="month-bar inflows" style="width:${Math.max(m.inflows?2:0,m.inflows/chartMax*100)}%" title="Ledger inflows ${money(m.inflows)}"></span>
+              <span class="month-bar outflows" style="width:${Math.max(m.outflows?2:0,m.outflows/chartMax*100)}%" title="Ledger outflows ${money(m.outflows)}"></span>
+            </div>
+            <span>${money(m.sales+m.payments)}</span>
+          </div>`).join("")}
+        </div>
+      </section>
+
+      <section class="panel finance-spend-panel">
+        <div class="panel-head"><div><span class="eyebrow">CASH OUT</span><h2>Largest Ledger Outflows</h2></div></div>
+        ${topOutflows.length?`<div class="finance-spend-list">
+          ${topOutflows.map(x=>`<div class="finance-spend-row"><div><span>${safe(x.category)}</span><strong>${money(x.amount)}</strong></div><div class="spend-track"><span style="width:${x.amount/maxOutflow*100}%"></span></div></div>`).join("")}
+        </div>`:`<div class="record-list-empty">No manager ledger outflows have been posted yet.</div>`}
+      </section>
+    </div>
+
+    <section class="panel no-pad finance-deal-profit-panel">
+      <div class="panel-head padded-head"><div><span class="eyebrow">DEAL PROFITABILITY</span><h2>Completed Deals</h2></div><span class="toolbar-count">${completedDeals.length} sold</span></div>
+      ${soldGrossRows.length?`<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Deal</th><th>Vehicle</th><th>Sale</th><th>Known Cost</th><th>Recon</th><th>Front Gross</th><th>F&I</th></tr></thead>
+        <tbody>${soldGrossRows.slice(0,12).map(row=>`<tr>
+          <td><strong>${safe(row.deal.dealNumber||row.deal.id.slice(0,8).toUpperCase())}</strong><small class="block">${safe(row.deal.customerName||"Customer")}</small></td>
+          <td>${safe(row.deal.vehicleName||"Vehicle")}</td>
+          <td><strong>${money(row.sale)}</strong></td>
+          <td>${row.cost>0?money(row.cost):'<span class="muted-inline">Unknown</span>'}</td>
+          <td>${money(row.recon)}</td>
+          <td>${row.frontGross!=null?`<strong class="${row.frontGross>=0?"positive-value":"negative-value"}">${money(row.frontGross)}</strong>`:'<span class="muted-inline">Need cost basis</span>'}</td>
+          <td>${money(row.finance?.productTotal||0)}</td>
+        </tr>`).join("")}</tbody>
+      </table></div>`:`<div class="record-list-empty padded-empty">No completed deals yet.</div>`}
+    </section>
+
+    <section class="panel no-pad dealership-ledger-panel">
+      <div class="panel-head padded-head"><div><span class="eyebrow">MANAGEMENT LEDGER</span><h2>Cash & Expense Entries</h2></div><button class="btn secondary small" id="new-dealership-ledger-2">${icon("plus")} New Entry</button></div>
+      ${allLedger.length?`<div class="table-wrap"><table class="data-table">
+        <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Direction</th><th>Amount</th><th>Recorded By</th><th></th></tr></thead>
+        <tbody>${allLedger.slice(0,20).map(entry=>`<tr class="${entry.status==="voided"?"voided-ledger-row":""}">
+          <td>${safe(entry.entryDate||fmtDate(entry.createdAt))}</td>
+          <td><strong>${safe(entry.category||"Other")}</strong></td>
+          <td>${safe(entry.description||"Ledger entry")}<small class="block">${safe(entry.reference||"")}</small></td>
+          <td>${statusPill(entry.status==="voided"?"voided":entry.direction||"entry")}</td>
+          <td><strong class="${entry.direction==="outflow"?"negative-value":"positive-value"}">${entry.direction==="outflow"?"−":"+"}${money(entry.amount)}</strong></td>
+          <td>${safe(entry.createdByName||"Management")}</td>
+          <td><button class="icon-btn" data-dealership-ledger-entry="${entry.id}" title="Open ledger entry">${icon("arrow-up-right")}</button></td>
+        </tr>`).join("")}</tbody>
+      </table></div>`:`<div class="record-list-empty padded-empty">No management ledger entries yet. Add starting capital, expenses, and other cash movements to establish operating cash.</div>`}
+    </section>
+
+    <div class="rp-disclaimer">${icon("info")} Dealership Finance combines operational records with the separate manager cash ledger. Vehicle sales, customer receivables, and payment activity are shown separately from ledger cash so they are not silently double-counted.</div>
+  `;
+}
+
+function dealershipLedgerEntryModal() {
+  modal("New Dealership Ledger Entry",`
+    <div class="ledger-entry-hero"><span class="record-icon">${icon("notebook-tabs")}</span><div><span class="eyebrow">MANAGEMENT CASH LEDGER</span><h3>Record money movement</h3><p>Use this for capital, payroll, rent, acquisitions, marketing, fees, and other dealership cash activity.</p></div></div>
+    <form id="dealership-ledger-form" class="form-grid">
+      <div class="field"><label>Direction</label><select class="plain-input" id="ledgerDirection"><option value="inflow">Money In</option><option value="outflow">Money Out</option></select></div>
+      <div class="field"><label>Category</label><select class="plain-input" id="ledgerCategory">
+        <option>Starting Capital</option><option>Vehicle Sale Proceeds</option><option>Vehicle Purchase / Acquisition</option><option>Reconditioning / Service</option><option>Parts Purchase</option><option>Payroll</option><option>Rent & Utilities</option><option>Marketing</option><option>Insurance</option><option>Taxes & Fees</option><option>Finance Income</option><option>Other Income</option><option>Other Expense</option><option>Adjustment</option>
+      </select></div>
+      ${formField("Amount","ledgerAmount","","number","required min='0.01' step='0.01'")}
+      ${formField("Entry Date","ledgerDate",new Date().toISOString().slice(0,10),"date","required")}
+      <div class="field full"><label>Description</label><input class="plain-input" id="ledgerDescription" required placeholder="Example: September facility rent"></div>
+      <div class="field"><label>Reference <span class="optional-label">Optional</span></label><input class="plain-input" id="ledgerReference" placeholder="Invoice, PO, deal, memo..."></div>
+      <div class="field full"><label>Management Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="ledgerNote" placeholder="Internal financial note"></textarea></div>
+    </form>
+    <div class="rp-disclaimer compact">${icon("shield-check")} This is an internal Sterling DRIVE roleplay ledger and does not represent a real bank account or accounting system.</div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-dealership-ledger">${icon("save")} Post Entry</button>`);
+
+  for(const [id,val] of [["ledgerDate",new Date().toISOString().slice(0,10)]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
+  document.querySelector("#save-dealership-ledger")?.addEventListener("click",async()=>{
+    const form=document.querySelector("#dealership-ledger-form");if(!form.reportValidity())return;
+    const btn=document.querySelector("#save-dealership-ledger");btn.disabled=true;
+    const data={
+      direction:document.querySelector("#ledgerDirection").value,
+      category:document.querySelector("#ledgerCategory").value,
+      amount:Number(document.querySelector("#ledgerAmount").value||0),
+      entryDate:document.querySelector("#ledgerDate").value,
+      description:document.querySelector("#ledgerDescription").value.trim(),
+      reference:document.querySelector("#ledgerReference").value.trim(),
+      note:document.querySelector("#ledgerNote").value.trim()
+    };
+    try{
+      const result=await createDealershipLedgerEntry(data,state.user);
+      await writeAudit(state.user,"dealership_finance.ledger_posted","dealershipLedger",result.id,{direction:data.direction,category:data.category,amount:data.amount});
+      closeModal();await refreshData();setFlash("Dealership ledger entry posted.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to post ledger entry.","error");}
+  });
+}
+
+function dealershipLedgerDetailModal(entry) {
+  if(!entry)return;
+  modal("Dealership Ledger Entry",`
+    <div class="ledger-detail-hero ${entry.direction==="outflow"?"outflow":"inflow"}">
+      <span class="record-icon">${icon(entry.direction==="outflow"?"banknote-arrow-down":"banknote-arrow-up")}</span>
+      <div><span class="eyebrow">${entry.direction==="outflow"?"MONEY OUT":"MONEY IN"}</span><h3>${safe(entry.description||"Ledger Entry")}</h3><p>${safe(entry.category||"Other")} • ${safe(entry.entryDate||fmtDate(entry.createdAt))}</p></div>
+      <strong>${entry.direction==="outflow"?"−":"+"}${money(entry.amount)}</strong>
+    </div>
+    <div class="record-grid">
+      <div><span>Status</span><strong>${safe(entry.status||"posted")}</strong></div>
+      <div><span>Reference</span><strong>${safe(entry.reference||"—")}</strong></div>
+      <div><span>Recorded By</span><strong>${safe(entry.createdByName||"Management")}</strong></div>
+      <div><span>Recorded</span><strong>${fmtDate(entry.createdAt)}</strong></div>
+    </div>
+    ${entry.note?`<div class="manager-note"><span>MANAGEMENT NOTE</span><p>${safe(entry.note)}</p></div>`:""}
+    ${entry.voidReason?`<div class="payment-default-alert">${icon("circle-x")}<div><strong>Entry voided</strong><span>${safe(entry.voidReason)}</span></div></div>`:""}
+  `,`<button class="btn secondary" data-close-modal>Close</button>${entry.status!=="voided"?`<button class="btn danger-btn" id="void-ledger-entry">${icon("circle-x")} Void Entry</button>`:""}`);
+
+  document.querySelector("#void-ledger-entry")?.addEventListener("click",()=>voidDealershipLedgerModal(entry));
+}
+
+function voidDealershipLedgerModal(entry) {
+  modal("Void Ledger Entry",`
+    <div class="danger-confirm-head">${icon("circle-x")}<div><span class="eyebrow">MANAGEMENT LEDGER</span><h3>Void ${money(entry.amount)} entry?</h3><p>The entry remains in the audit trail but is removed from operating cash calculations.</p></div></div>
+    <div class="field full"><label>Void Reason</label><textarea class="plain-input textarea" id="ledgerVoidReason" required placeholder="Explain why this ledger entry is being voided."></textarea></div>
+  `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn danger-btn" id="confirm-ledger-void">${icon("circle-x")} Void Entry</button>`);
+  document.querySelector("#confirm-ledger-void")?.addEventListener("click",async()=>{
+    const reason=document.querySelector("#ledgerVoidReason").value.trim();if(!reason){setFlash("A void reason is required.","error");return;}
+    const btn=document.querySelector("#confirm-ledger-void");btn.disabled=true;
+    try{
+      await updateRecord("dealershipLedger",entry.id,{status:"voided",voidReason:reason,voidedBy:state.user.uid,voidedByName:state.profile?.displayName||state.user.email,voidedAt:new Date().toISOString()});
+      await writeAudit(state.user,"dealership_finance.ledger_voided","dealershipLedger",entry.id,{reason,amount:Number(entry.amount||0)});
+      closeModal();await refreshData();setFlash("Ledger entry voided.");
+    }catch(e){btn.disabled=false;setFlash(e.message||"Unable to void ledger entry.","error");}
+  });
+}
+
 function paymentsPage() {
   const accounts=state.data.paymentAccounts || [];
   const transactions=state.data.paymentTransactions || [];
