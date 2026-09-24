@@ -2122,7 +2122,7 @@ function deliveryModal(d) {
           nextDueDate:nextDue.toISOString().slice(0,10),
           status:"active"
         },state.user);
-        await updateRecord("financeApplications",finance.id,{paymentAccountId:account.id,paymentAccountStatus:"active"});
+        if(can("finance.manage")) await updateRecord("financeApplications",finance.id,{paymentAccountId:account.id,paymentAccountStatus:"active"});
       }
       if(trade && !["service_review_required","service_review","reconditioning","service_approved","sales_floor","wholesale"].includes(trade.status||"")){
         const receivedVehicle=await receiveTradeInVehicle(trade,d,state.user);
