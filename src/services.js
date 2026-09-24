@@ -704,3 +704,19 @@ export async function repossessVehicleFromAccount(account, reason, actor) {
   await batch.commit();
   return { id: recoveryId };
 }
+
+
+export async function createDealershipLedgerEntry(data, actor) {
+  const amount = Math.max(0, Number(data.amount || 0));
+  if (!amount) throw new Error("Enter a ledger amount.");
+  return addDoc(collection(db, "dealershipLedger"), {
+    ...data,
+    amount,
+    entryDate: data.entryDate || new Date().toISOString().slice(0, 10),
+    status: data.status || "posted",
+    createdBy: actor.uid,
+    createdByName: actor.displayName || actor.email || "Sterling Management",
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp()
+  });
+}
