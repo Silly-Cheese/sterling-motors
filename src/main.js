@@ -1265,6 +1265,10 @@ function financeCustomerDetailModal(client) {
   const activeAppointment=appointments.find(a=>["requested","confirmed","checked_in"].includes(a.status||"requested"));
   const totalFinanced=applications.filter(a=>!["voided","cancelled"].includes(a.status||"")).reduce((s,a)=>s+Number(a.amountFinanced||0),0);
   const productCount=applications.reduce((s,a)=>s+(a.products?.length||0),0);
+  const paymentAccounts=(state.data.paymentAccounts||[]).filter(a=>
+    (client.customerId && a.customerId===client.customerId) ||
+    (String(a.customerName||"").toLowerCase()===String(client.name||"").toLowerCase())
+  );
 
   modal(`Finance • ${safe(client.name)}`,`
     <div class="finance-customer-hero">
@@ -1305,6 +1309,17 @@ function financeCustomerDetailModal(client) {
             <span><strong>${safe(a.dealNumber||"Finance Package")}</strong><small>${money(a.amountFinanced)} • ${Number(a.apr||0).toFixed(2)}% • ${Number(a.termMonths||0)} mo • ${money(a.monthlyPayment)}/mo</small></span>
             ${statusPill(a.status||"draft")}
           </button>`).join("") : '<div class="record-list-empty">No Finance packages recorded.</div>'}
+        </div>
+      </section>
+
+      <section class="finance-customer-section">
+        <div class="record-section-head"><div><span class="eyebrow">PAYMENTS</span><h4>Vehicle Payment Accounts</h4></div><b>${paymentAccounts.length}</b></div>
+        <div class="customer-record-list">
+          ${paymentAccounts.length ? paymentAccounts.map(a=>`<button class="customer-record-item" data-finance-profile-payment="${a.id}">
+            <span class="record-list-icon">${icon("receipt-text")}</span>
+            <span><strong>${safe(a.vehicleName||"Vehicle")}</strong><small>${money(a.currentBalance)} balance • ${money(a.monthlyPayment)}/mo • ${a.nextDueDate?safe(a.nextDueDate):"No next due date"}</small></span>
+            ${statusPill(a.status||"active")}
+          </button>`).join("") : '<div class="record-list-empty">No vehicle payment accounts.</div>'}
         </div>
       </section>
 
@@ -1358,6 +1373,7 @@ function financeCustomerDetailModal(client) {
     if(d) financeWorksheetModal(d);
   });
   document.querySelectorAll("[data-edit-finance-application]").forEach(btn=>btn.addEventListener("click",()=>editFinanceApplicationModal(state.data.financeApplications.find(a=>a.id===btn.dataset.editFinanceApplication))));
+  document.querySelectorAll("[data-finance-profile-payment]").forEach(btn=>btn.addEventListener("click",()=>paymentAccountModal(state.data.paymentAccounts.find(a=>a.id===btn.dataset.financeProfilePayment))));
   document.querySelectorAll("[data-finance-profile-appointment]").forEach(btn=>btn.addEventListener("click",()=>manageFinanceAppointmentModal(state.data.financeAppointments.find(a=>a.id===btn.dataset.financeProfileAppointment))));
   document.querySelectorAll("[data-finance-profile-deal]").forEach(btn=>btn.addEventListener("click",()=>dealDetailModal(state.data.deals.find(d=>d.id===btn.dataset.financeProfileDeal))));
 }
