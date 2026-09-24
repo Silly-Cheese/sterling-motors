@@ -48,7 +48,8 @@ import {
   ensurePaymentAccount,
   recordVehiclePayment,
   markVehiclePaymentDefault,
-  repossessVehicleFromAccount
+  repossessVehicleFromAccount,
+  createDealershipLedgerEntry
 } from "./services.js";
 
 const app = document.querySelector("#app");
@@ -57,7 +58,7 @@ const state = {
   user: null,
   profile: null,
   page: "dashboard",
-  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [] },
+  data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [], dealershipLedger: [] },
   bootstrap: null,
   loading: true,
   flash: null
@@ -93,6 +94,7 @@ const navGroups = [
   {
     label:"Administration",
     items:[
+      ["dealerFinance","chart-no-axes-combined","Dealership Finance"],
       ["staff","id-card","Staff"],
       ["audit","shield-check","Audit"]
     ]
@@ -166,7 +168,7 @@ function shell(content) {
         <nav class="nav">
           ${navGroups.map(group => `<div class="nav-group">
             <div class="nav-group-label">${group.label}</div>
-            ${group.items.map(([id, ico, label]) => {
+            ${group.items.filter(([id]) => id!=="dealerFinance" || isManager()).map(([id, ico, label]) => {
               const blocked = !staff && !["dashboard", "inventory", "acquisitions", "financeAppointments"].includes(id);
               return `<button class="nav-item ${state.page === id ? "active" : ""} ${blocked ? "locked" : ""}" data-page="${id}" ${blocked ? "disabled" : ""}>
                 <span class="nav-icon">${icon(ico)}</span><span class="nav-label">${label}</span>${blocked ? icon("lock-keyhole", "nav-lock") : state.page === id ? '<span class="active-rail"></span>' : ""}
@@ -221,6 +223,7 @@ function pageSubtitle() {
     financeAppointments:"Finance consultation scheduling",
     finance:"F&I, payments, and delivery",
     payments:"Vehicle payment accounts, defaults, and recovery",
+    dealerFinance:"Manager financial command center",
     service:"Repair and maintenance operations",
     parts:"Parts inventory and fulfillment",
     staff:"Employees, roles, and access",
@@ -3100,6 +3103,7 @@ function currentPage() {
     case "financeAppointments": return financeAppointmentsPage();
     case "finance": return financePage();
     case "payments": return paymentsPage();
+    case "dealerFinance": return isManager() ? dealershipFinancePage() : dashboard();
     case "service": return servicePage();
     case "parts": return partsPage();
     case "acquisitions": return acquisitionsPage();
@@ -3111,7 +3115,7 @@ function currentPage() {
 
 function commandPalette() {
   const commands = [
-    ...nav.filter(([id]) => state.profile?.isStaff || ["dashboard","inventory","acquisitions","financeAppointments"].includes(id)).map(([id, ico, label]) => ({
+    ...nav.filter(([id]) => (id!=="dealerFinance" || isManager()) && (state.profile?.isStaff || ["dashboard","inventory","acquisitions","financeAppointments"].includes(id))).map(([id, ico, label]) => ({
       id:"page-"+id, icon:ico, label, description:pageSubtitleFor(id), type:"Navigate", run:()=>{ state.page=id; closeModal(); render(); }
     })),
     ...(can("sales.manage") ? [
@@ -4143,7 +4147,7 @@ async function refreshData() {
     const base = await listCollection("vehicles").catch(() => []);
     state.data.vehicles = base;
     if (state.profile.isStaff) {
-      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles, paymentAccounts, paymentTransactions, vehicleRecoveryCases] = await Promise.all([
+      const [deals, customers, queue, users, testDrives, notifications, tradeIns, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles, paymentAccounts, paymentTransactions, vehicleRecoveryCases, dealershipLedger] = await Promise.all([
         listCollection("deals").catch(() => []),
         listCollection("customers").catch(() => []),
         listCollection("queue").catch(() => []),
@@ -4162,7 +4166,8 @@ async function refreshData() {
         listCollection("financeCustomerProfiles").catch(() => []),
         listCollection("paymentAccounts").catch(() => []),
         listCollection("paymentTransactions", 250).catch(() => []),
-        listCollection("vehicleRecoveryCases").catch(() => [])
+        listCollection("vehicleRecoveryCases").catch(() => []),
+        isManager() ? listCollection("dealershipLedger", 250).catch(() => []) : Promise.resolve([])
       ]);
       const tradeGroups=new Map();
       for(const trade of tradeIns){
@@ -4190,13 +4195,13 @@ async function refreshData() {
         uniqueVehicles.push(vehicle);
       }
       state.data.vehicles=uniqueVehicles;
-      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles, paymentAccounts, paymentTransactions, vehicleRecoveryCases });
+      Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles, paymentAccounts, paymentTransactions, vehicleRecoveryCases, dealershipLedger });
     } else {
       const [vehicleAcquisitions, financeAppointments] = await Promise.all([
         listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),
         listFinanceAppointmentsForUser(state.user.uid).catch(() => [])
       ]);
-      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[],financeCustomerProfiles:[],paymentAccounts:[],paymentTransactions:[],vehicleRecoveryCases:[] });
+      Object.assign(state.data,{ vehicleAcquisitions,financeAppointments,deals:[],customers:[],queue:[],users:[],testDrives:[],notifications:[],tradeIns:[],financeApplications:[],deliveries:[],serviceAppointments:[],repairOrders:[],parts:[],partRequests:[],financeCustomerProfiles:[],paymentAccounts:[],paymentTransactions:[],vehicleRecoveryCases:[],dealershipLedger:[] });
     }
   } catch (e) {
     console.warn("Data refresh:", e);
@@ -4406,7 +4411,7 @@ onAuthStateChanged(auth, async (user) => {
   } else {
     state.profile = null;
     state.bootstrap = null;
-    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [] };
+    state.data = { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [], dealershipLedger: [] };
   }
   state.loading = false;
   state.page = "dashboard";
