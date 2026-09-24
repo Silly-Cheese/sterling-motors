@@ -249,7 +249,13 @@ service cloud.firestore {
 
     match /paymentAccounts/{id} {
       allow read: if activeStaff();
-      allow create, update: if permitted('finance.manage') || permitted('admin.full');
+      allow create: if
+        permitted('finance.manage') ||
+        permitted('admin.full') ||
+        (permitted('sales.manage') &&
+          request.resource.data.financeApplicationId is string &&
+          request.resource.data.status == 'active');
+      allow update: if permitted('finance.manage') || permitted('admin.full');
       allow delete: if permitted('admin.full');
     }
 
@@ -298,6 +304,17 @@ service cloud.firestore {
             'managerApprovedBy',
             'managerApprovedByName',
             'managerApprovedAt',
+            'updatedAt'
+          ])) ||
+        ((permitted('inventory.manage') || permitted('sales.manage')) &&
+          resource.data.managerApprovalStatus == 'approved' &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status',
+            'retailPrice',
+            'salesFloorVehicleId',
+            'releasedBy',
+            'releasedByName',
+            'releasedAt',
             'updatedAt'
           ]));
       allow delete: if permitted('admin.full');
