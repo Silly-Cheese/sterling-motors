@@ -2402,9 +2402,14 @@ function pushTradeToSalesFloorModal(vehicle) {
   if(!vehicle || vehicle.status!=="retail_ready")return;
   const trade=vehicle.sourceTradeId ? state.data.tradeIns.find(t=>t.id===vehicle.sourceTradeId) : null;
   const acquisition=vehicle.sourceAcquisitionId ? state.data.vehicleAcquisitions.find(a=>a.id===vehicle.sourceAcquisitionId) : null;
-  const sourceLabel=trade ? "Trade-In" : acquisition ? "Sterling-Purchased Vehicle" : "Used Vehicle";
-  const sourceCost=Number(trade?.managerApprovedAcv ?? trade?.acv ?? acquisition?.offerAmount ?? vehicle.acquisitionCost ?? 0);
-  const serviceNotes=vehicle.serviceReviewNotes || trade?.serviceReviewNotes || "Service approved this vehicle for retail sale.";
+  const recovery=vehicle.sourceRecoveryCaseId ? state.data.vehicleRecoveryCases.find(r=>r.id===vehicle.sourceRecoveryCaseId) : null;
+  if(recovery && recovery.managerApprovalStatus!=="approved"){
+    setFlash("This recovered vehicle still requires manager approval before retail release.","error");
+    return;
+  }
+  const sourceLabel=trade ? "Trade-In" : acquisition ? "Sterling-Purchased Vehicle" : recovery ? "Recovered Vehicle" : "Used Vehicle";
+  const sourceCost=Number(trade?.managerApprovedAcv ?? trade?.acv ?? acquisition?.offerAmount ?? recovery?.outstandingBalance ?? vehicle.acquisitionCost ?? 0);
+  const serviceNotes=vehicle.serviceReviewNotes || trade?.serviceReviewNotes || recovery?.serviceReviewNotes || "Service approved this vehicle for retail sale.";
 
   modal("Push Vehicle to Sales Floor",`
     <div class="record-hero">
@@ -2414,7 +2419,7 @@ function pushTradeToSalesFloorModal(vehicle) {
     </div>
     <div class="record-grid">
       <div><span>Source</span><strong>${sourceLabel}</strong></div>
-      <div><span>Acquisition Cost</span><strong>${money(sourceCost)}</strong></div>
+      <div><span>${recovery?"Recovery Balance":"Acquisition Cost"}</span><strong>${money(sourceCost)}</strong></div>
       <div><span>Recon Estimate</span><strong>${money(vehicle.reconditioningEstimate||trade?.reconditioningEstimate||0)}</strong></div>
       <div><span>Current Location</span><strong>${safe(vehicle.location||"Retail Ready Holding")}</strong></div>
     </div>
@@ -2440,14 +2445,17 @@ function pushTradeToSalesFloorModal(vehicle) {
         retailCondition:document.querySelector("#floorCondition").value,
         salesFloorAt:new Date().toISOString(),
         releasedBy:state.user.uid,
-        releasedByName:state.profile?.displayName||state.user.email
+        releasedByName:state.profile?.displayName||state.user.email,
+        recoveryHold:recovery ? false : vehicle.recoveryHold
       });
       if(trade) await updateRecord("tradeIns",trade.id,{status:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
       if(acquisition) await updateRecord("vehicleAcquisitions",acquisition.id,{retailStatus:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
+      if(recovery) await updateRecord("vehicleRecoveryCases",recovery.id,{status:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id,releasedBy:state.user.uid,releasedByName:state.profile?.displayName||state.user.email,releasedAt:new Date().toISOString()});
       await writeAudit(state.user,"vehicle.pushed_to_sales_floor","vehicle",vehicle.id,{
         tradeInId:trade?.id||"",
         acquisitionId:acquisition?.id||"",
-        source:trade?"trade_in":acquisition?"acquisition":"used_vehicle",
+        recoveryCaseId:recovery?.id||"",
+        source:trade?"trade_in":acquisition?"acquisition":recovery?"recovery":"used_vehicle",
         price
       });
       closeModal();await refreshData();setFlash("Vehicle is now available on the Sterling sales floor.");
@@ -3577,8 +3585,8 @@ function vehicleDetailModal(v) {
       <div><span>MSRP</span><strong>${money(v.msrp || v.price)}</strong></div>
     </div>
     <div class="scan-record"><span>${icon("qr-code")}</span><div><small>STERLING SCAN ID</small><code>${safe(scanCode)}</code></div><button class="btn secondary small" id="copy-scan">Copy</button></div>
-    ${(v.sourceTradeId||v.sourceAcquisitionId) ? `<div class="trade-origin-note">${icon(v.sourceTradeId?"refresh-cw":"badge-dollar-sign")}<div><strong>${v.sourceTradeId?"Trade-In Vehicle":"Sterling-Purchased Vehicle"}</strong><span>${v.status==="available" ? "Service-approved and on the sales floor." : v.status==="retail_ready" ? "Service approved — waiting to be pushed to the sales floor." : "Retail sale locked until Service completes its review."}</span></div></div>` : ""}
-    ${(v.sourceTradeId||v.sourceAcquisitionId) && v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")||can("acquisitions.manage")) ? `<div class="workflow-actions"><button class="btn primary" id="push-sales-floor">${icon("store")} Push to Sales Floor</button></div>` : ""}
+    ${(v.sourceTradeId||v.sourceAcquisitionId||v.sourceRecoveryCaseId) ? `<div class="trade-origin-note">${icon(v.sourceRecoveryCaseId?"shield-alert":v.sourceTradeId?"refresh-cw":"badge-dollar-sign")}<div><strong>${v.sourceRecoveryCaseId?"Recovered Vehicle":v.sourceTradeId?"Trade-In Vehicle":"Sterling-Purchased Vehicle"}</strong><span>${v.sourceRecoveryCaseId ? (v.status==="retail_ready" ? "Service and management approved — waiting for retail release." : v.status==="repossession_manager_review" ? "Service approved — manager approval is still required." : v.status==="available" ? "Recovered vehicle cleared and returned to the sales floor." : "Recovery hold active. This vehicle cannot be retailed yet.") : v.status==="available" ? "Service-approved and on the sales floor." : v.status==="retail_ready" ? "Service approved — waiting to be pushed to the sales floor." : "Retail sale locked until Service completes its review."}</span></div></div>` : ""}
+    ${(v.sourceTradeId||v.sourceAcquisitionId||v.sourceRecoveryCaseId) && v.status==="retail_ready" && (can("inventory.manage")||can("sales.manage")||can("admin.full")||can("acquisitions.manage")) ? `<div class="workflow-actions"><button class="btn primary" id="push-sales-floor">${icon("store")} Push to Sales Floor</button></div>` : ""}
     ${activeDrive ? `<div class="alert-card">${icon("navigation")} <div><strong>Vehicle is currently on a test drive</strong><span>${safe(activeDrive.customerName || "Customer")} • ${safe(activeDrive.startedByName || "Sterling Staff")}</span></div>${can("sales.manage") ? `<button class="btn primary small" data-return-drive="${activeDrive.id}">Return Vehicle</button>` : ""}</div>` : ""}
   `);
   document.querySelector("#copy-scan")?.addEventListener("click", async () => {
