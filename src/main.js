@@ -2462,7 +2462,7 @@ function pushTradeToSalesFloorModal(vehicle) {
         salesFloorAt:new Date().toISOString(),
         releasedBy:state.user.uid,
         releasedByName:state.profile?.displayName||state.user.email,
-        recoveryHold:recovery ? false : vehicle.recoveryHold
+        recoveryHold:recovery ? false : Boolean(vehicle.recoveryHold)
       });
       if(trade) await updateRecord("tradeIns",trade.id,{status:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
       if(acquisition) await updateRecord("vehicleAcquisitions",acquisition.id,{retailStatus:"sales_floor",retailPrice:price,salesFloorVehicleId:vehicle.id});
