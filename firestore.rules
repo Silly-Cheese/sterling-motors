@@ -247,6 +247,12 @@ service cloud.firestore {
 
 
 
+
+    match /dealershipLedger/{id} {
+      allow read, create, update: if permitted('deals.approve') || permitted('admin.full');
+      allow delete: if permitted('admin.full');
+    }
+
     match /paymentAccounts/{id} {
       allow read: if activeStaff();
       allow create: if
