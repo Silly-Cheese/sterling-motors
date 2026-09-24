@@ -1785,6 +1785,7 @@ function financeWorksheetModal(d, preset = null) {
 function deliveryModal(d) {
   const delivery=state.data.deliveries.find(x=>x.dealId===d.id);
   const trade=state.data.tradeIns.find(x=>x.dealId===d.id);
+  const finance=state.data.financeApplications.find(x=>x.dealId===d.id);
   if(!delivery){setFlash("No delivery record exists for this deal yet.","error");return;}
   modal("Vehicle Delivery", `
     <div class="delivery-head"><div class="record-icon">${icon("key-round")}</div><div><span class="eyebrow">FINAL HANDOFF</span><h3>${safe(d.vehicleName || "Vehicle")}</h3><p>${safe(d.customerName || "Customer")} • ${safe(d.dealNumber || "")}</p></div></div>
@@ -1802,6 +1803,27 @@ function deliveryModal(d) {
       await updateRecord("deliveries",delivery.id,{status:"complete",completedBy:state.user.uid,completedByName:state.profile?.displayName || state.user.email,checklistComplete:true});
       await updateRecord("deals",d.id,{stage:"complete",deliveryStatus:"complete"});
       await updateRecord("vehicles",d.vehicleId,{status:"sold",ownerCustomerId:d.customerId || "",ownerCustomerName:d.customerName || ""});
+      if(finance && Number(finance.amountFinanced||0)>0 && finance.financeSource!=="Cash / No Lender"){
+        const nextDue=new Date();
+        nextDue.setMonth(nextDue.getMonth()+1);
+        const account=await ensurePaymentAccount({
+          financeApplicationId:finance.id,
+          dealId:d.id,
+          dealNumber:d.dealNumber||"",
+          customerId:d.customerId||"",
+          customerName:d.customerName||"",
+          vehicleId:d.vehicleId,
+          vehicleName:d.vehicleName||"",
+          originalBalance:Number(finance.amountFinanced||0),
+          monthlyPayment:Number(finance.monthlyPayment||0),
+          termMonths:Number(finance.termMonths||0),
+          apr:Number(finance.apr||0),
+          financeSource:finance.financeSource||"Sterling Financial",
+          nextDueDate:nextDue.toISOString().slice(0,10),
+          status:"active"
+        },state.user);
+        await updateRecord("financeApplications",finance.id,{paymentAccountId:account.id,paymentAccountStatus:"active"});
+      }
       if(trade && !["service_review_required","service_review","reconditioning","service_approved","sales_floor","wholesale"].includes(trade.status||"")){
         const receivedVehicle=await receiveTradeInVehicle(trade,d,state.user);
         await createNotification({type:"service",title:"Trade-in needs Service review",message:`${trade.year} ${trade.make} ${trade.model} has been received and is waiting for retail inspection.`,tradeInId:trade.id,vehicleId:receivedVehicle.id},state.user);
