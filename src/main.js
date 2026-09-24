@@ -2146,6 +2146,8 @@ function servicePage() {
   const tradeReady=state.data.tradeIns.filter(t=>(t.status||"")==="service_approved").length;
   const acquisitionReviews=state.data.vehicles.filter(v=>v.sourceAcquisitionId && ["service_review","reconditioning"].includes(v.status||""));
   const acquisitionReady=state.data.vehicles.filter(v=>v.sourceAcquisitionId && (v.status||"")==="retail_ready").length;
+  const recoveryReviews=(state.data.vehicleRecoveryCases||[]).filter(r=>["service_review_required","reconditioning"].includes(r.status||""));
+  const recoveryManagerQueue=(state.data.vehicleRecoveryCases||[]).filter(r=>(r.status||"")==="manager_review_required").length;
   const today=new Date().toISOString().slice(0,10);
   const todayAppointments=appointments.filter(a=>a.date===today && !["complete","cancelled"].includes((a.status||"").toLowerCase())).length;
 
@@ -2195,6 +2197,25 @@ function servicePage() {
           </article>`;
         }).join("")}
       </div>` : `<div class="trade-review-empty">${icon("circle-check-big")}<div><strong>No acquired vehicles waiting on Service</strong><span>Vehicles purchased through Sell Your Car will appear here whenever intake is marked Service Review.</span></div></div>`}
+    </div>
+
+    <div class="trade-review-panel panel recovery-service-panel">
+      <div class="panel-head">
+        <div><span class="eyebrow">RECOVERED VEHICLE CONTROL</span><h2>Repossession / Take-Back Inspections</h2></div>
+        <div class="trade-review-summary"><span>${recoveryReviews.length} awaiting Service</span><span>${recoveryManagerQueue} awaiting manager</span></div>
+      </div>
+      ${recoveryReviews.length ? `<div class="trade-review-grid">
+        ${recoveryReviews.map(r=>{
+          const vehicle=state.data.vehicles.find(v=>v.id===r.vehicleId);
+          return `<article class="trade-review-card recovery-review-card">
+            <div class="trade-review-card-top"><span class="record-list-icon">${icon("shield-alert")}</span>${statusPill(r.status||"service_review_required")}</div>
+            <h3>${safe(r.vehicleName||"Recovered Vehicle")}</h3>
+            <p>${safe(r.customerName||"Former customer")} • Balance ${money(r.outstandingBalance)}</p>
+            <small>${safe(vehicle?.location||"Service Intake / Recovery Inspection")} • ${safe(r.reason||"Recovery")}</small>
+            ${can("service.manage") ? `<button class="btn primary small" data-recovery-service-review="${r.id}">${icon("clipboard-check")} Inspect Recovered Vehicle</button>` : ""}
+          </article>`;
+        }).join("")}
+      </div>` : `<div class="trade-review-empty">${icon("circle-check-big")}<div><strong>No recovered vehicles waiting on Service</strong><span>Repossession / take-back vehicles automatically arrive here before management can release them for retail.</span></div></div>`}
     </div>
 
     <div class="service-layout">
