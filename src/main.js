@@ -1511,7 +1511,7 @@ function financePage() {
 
   return `
     ${pageHeader("F&I OPERATIONS", "DRIVE Finance", "Customer finance records, payment strategy, F&I packages, consultations, follow-up, contracts, and final vehicle delivery.",
-      `<button class="btn secondary" data-page="payments">${icon("receipt-text")} Payments</button><button class="btn secondary" id="open-payment-lab">${icon("sliders-horizontal")} Payment Lab</button><button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Appointments</button>`)}
+      `${isManager()?`<button class="btn secondary" data-page="dealerFinance">${icon("chart-no-axes-combined")} Dealership Finance</button>`:""}<button class="btn secondary" data-page="payments">${icon("receipt-text")} Payments</button><button class="btn secondary" id="open-payment-lab">${icon("sliders-horizontal")} Payment Lab</button><button class="btn secondary" data-page="financeAppointments">${icon("calendar-clock")} Appointments</button>`)}
 
     <div class="metric-grid">
       ${metric("Finance Queue", financeDeals.length, "landmark", "Deals requiring F&I")}
@@ -4619,6 +4619,9 @@ function bindApp() {
     const term=e.currentTarget.value.toLowerCase().trim();
     document.querySelectorAll("#finance-customer-rows tr").forEach(row=>row.style.display=(row.dataset.search||"").includes(term)?"":"none");
   });
+  document.querySelector("#new-dealership-ledger")?.addEventListener("click",dealershipLedgerEntryModal);
+  document.querySelector("#new-dealership-ledger-2")?.addEventListener("click",dealershipLedgerEntryModal);
+  document.querySelectorAll("[data-dealership-ledger-entry]").forEach(btn=>btn.addEventListener("click",()=>dealershipLedgerDetailModal(state.data.dealershipLedger.find(x=>x.id===btn.dataset.dealershipLedgerEntry))));
   document.querySelectorAll("[data-payment-account]").forEach(btn => btn.addEventListener("click", () => paymentAccountModal(state.data.paymentAccounts.find(a=>a.id===btn.dataset.paymentAccount))));
   document.querySelectorAll("[data-setup-payment-account]").forEach(btn => btn.addEventListener("click", () => setupExistingPaymentAccount(state.data.financeApplications.find(a=>a.id===btn.dataset.setupPaymentAccount))));
   document.querySelectorAll("[data-recovery-service-review]").forEach(btn => btn.addEventListener("click", () => recoveryServiceReviewModal(state.data.vehicleRecoveryCases.find(r=>r.id===btn.dataset.recoveryServiceReview))));
