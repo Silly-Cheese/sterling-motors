@@ -405,21 +405,49 @@ function sales() {
   `;
 }
 
+function customerRelatedRecords(customer) {
+  const match = record => record.customerId === customer.id ||
+    (!record.customerId && customer.name && record.customerName &&
+      String(record.customerName).trim().toLowerCase() === String(customer.name).trim().toLowerCase());
+  return {
+    deals: state.data.deals.filter(match),
+    service: state.data.repairOrders.filter(match),
+    visits: state.data.queue.filter(match),
+    payments: state.data.paymentAccounts.filter(match),
+    appointments: state.data.serviceAppointments.filter(match)
+  };
+}
+
 function customers() {
-  const customers = state.data.customers;
+  const entries = state.data.customers;
+  const enriched = entries.map(c => {
+    const related=customerRelatedRecords(c);
+    const searchable=[
+      c.name,c.email,c.phone,c.customerNumber,c.status,
+      ...related.deals.flatMap(d=>[d.dealNumber,d.vehicleName]),
+      ...related.service.flatMap(r=>[r.roNumber,r.vehicleName]),
+      ...related.payments.flatMap(p=>[p.vehicleName,p.customerName])
+    ].filter(Boolean).join(" ").toLowerCase();
+    return {c,related,searchable};
+  });
   return `
-    ${pageHeader("CUSTOMER RELATIONSHIP MANAGEMENT", "Customers", "Customer profiles connect sales, ownership, service, and dealership history.",
+    ${pageHeader("CUSTOMER RELATIONSHIP MANAGEMENT", "Customers", "A single entry point for customer identity, sales, service, visits and finance.",
       can("customers.manage") || can("sales.manage") ? `<button class="btn primary" data-action="new-customer">${icon("user-plus")} New Customer</button>` : "")}
     <div class="toolbar">
-      <div class="search-box">${icon("search")}<input data-filter="customers" placeholder="Search customers..." /></div>
-      <div class="toolbar-count">${customers.length} profile${customers.length === 1 ? "" : "s"}</div>
+      <div class="search-box">${icon("search")}<input data-filter="customers" placeholder="Search name, contact, vehicle, deal, repair order..." /></div>
+      <div class="toolbar-count">${entries.length} profile${entries.length===1?"":"s"}</div>
     </div>
     <div class="customer-grid" id="customer-grid">
-      ${customers.length ? customers.map(c => `<article class="customer-card" data-search="${safe([c.name,c.email,c.phone,c.customerNumber].join(" ").toLowerCase())}">
-        <div class="customer-top"><span class="avatar lg">${initials(c.name)}</span><div><h3>${safe(c.name || "Customer")}</h3><span>${safe(c.customerNumber || c.id.slice(0,8).toUpperCase())}</span></div>${statusPill(c.status || "active")}</div>
-        <div class="customer-meta"><span>${icon("mail")} ${safe(c.email || "No email")}</span><span>${icon("phone")} ${safe(c.phone || "No phone")}</span></div>
+      ${enriched.length ? enriched.map(({c,related,searchable})=>`<article class="customer-card" data-search="${safe(searchable)}">
+        <div class="customer-top"><span class="avatar lg">${initials(c.name)}</span><div><h3>${safe(c.name||"Customer")}</h3><span>${safe(c.customerNumber||"Customer record")}</span></div>${statusPill(c.status||"active")}</div>
+        <div class="customer-meta"><span>${icon("mail")} ${safe(c.email||"No email")}</span><span>${icon("phone")} ${safe(c.phone||"No phone")}</span></div>
+        <div class="customer-meta">
+          <span>${icon("handshake")} ${related.deals.length} deals</span>
+          <span>${icon("wrench")} ${related.service.length} repair orders</span>
+          <span>${icon("wallet-cards")} ${related.payments.length} finance accounts</span>
+        </div>
         <div class="customer-footer"><small>Customer since ${fmtDate(c.createdAt)}</small><button class="text-btn" data-customer="${c.id}">Open profile ${icon("arrow-up-right")}</button></div>
-      </article>`).join("") : emptyState("users", "No customer profiles yet", "Create a customer profile to begin their Sterling history.", can("sales.manage") ? `<button class="btn primary" data-action="new-customer">Create Customer</button>` : "")}
+      </article>`).join("") : emptyState("users","No customer profiles yet","Create a customer record to begin their Sterling history.",can("sales.manage")?`<button class="btn primary" data-action="new-customer">Create Customer</button>`:"")}
     </div>
   `;
 }
