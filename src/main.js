@@ -1,3 +1,4 @@
+import { motorsWorkflowSummary } from "./workflows/readiness.js";
 import { createIcons, icons } from "lucide";
 import {
   createUserWithEmailAndPassword,
@@ -249,6 +250,13 @@ function dashboard() {
     .reduce((sum, d) => sum + Number(d.finalPrice || d.price || 0), 0);
   const waiting = queue.filter(q => (q.status || "").toLowerCase() === "waiting").length;
 
+  const workflow = motorsWorkflowSummary({
+    deals, repairOrders: state.data.repairOrders,
+    financeApplications: state.data.financeApplications,
+    deliveries: state.data.deliveries,
+    vehicles: state.data.vehicles,
+    partRequests: state.data.partRequests
+  });
   const recentDeals = deals.slice(0, 5);
   const recentQueue = queue.slice(0, 5);
   const approvals = deals.filter(d => (d.stage || "").replaceAll("_"," ").toLowerCase() === "manager review").length;
@@ -279,6 +287,10 @@ function dashboard() {
       ${metric("Closed Revenue", money(revenue), "circle-dollar-sign", "Completed deals")}
     </div>
 
+    <div class="metric-grid">
+      ${metric("Deals requiring review", workflow.dealsBlocked, "clipboard-check", "Missing operational checkpoints")}
+      ${metric("Service orders requiring review", workflow.serviceBlocked, "wrench", "Unfinished workflow checkpoints")}
+    </div>
     <div class="attention-strip">
       <button class="attention-item ${approvals ? "needs-attention" : ""}" data-page="sales"><span class="attention-icon">${icon("badge-check")}</span><div><small>Desk Approvals</small><strong>${approvals}</strong></div><span class="attention-copy">${approvals ? "Needs manager review" : "Desk is clear"}</span>${icon("chevron-right")}</button>
       <button class="attention-item ${activeTestDrives ? "active-attention" : ""}" data-page="sales"><span class="attention-icon">${icon("navigation")}</span><div><small>Test Drives Out</small><strong>${activeTestDrives}</strong></div><span class="attention-copy">${activeTestDrives ? "Vehicles currently out" : "No vehicles out"}</span>${icon("chevron-right")}</button>
