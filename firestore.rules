@@ -384,6 +384,35 @@ service cloud.firestore {
       allow update, delete: if permitted('admin.full');
     }
 
+
+    // Phase 1 opt-in financial posting subsystem. Immutable operation and journal records.
+    // For real payment processing, enforce balanced postings on a trusted backend.
+    match /financialInvoices/{id} {
+      allow read: if (permitted('admin.full') || permitted('finance.manage'));
+      allow create, update: if (permitted('admin.full') || permitted('finance.manage'));
+      allow delete: if false;
+    }
+    match /financialJournals/{id} {
+      allow read: if (permitted('admin.full') || permitted('finance.manage'));
+      allow create: if (permitted('admin.full') || permitted('finance.manage'))
+        && request.resource.data.operationId == id
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.status == "posted";
+      allow update, delete: if false;
+    }
+    match /financialOperations/{id} {
+      allow read: if (permitted('admin.full') || permitted('finance.manage'));
+      allow create: if (permitted('admin.full') || permitted('finance.manage'))
+        && request.resource.data.operationId == id
+        && request.resource.data.actorUid == request.auth.uid;
+      allow update, delete: if false;
+    }
+    match /financialReversals/{id} {
+      allow read: if (permitted('admin.full') || permitted('finance.manage'));
+      allow create: if (permitted('admin.full') || permitted('finance.manage'));
+      allow update, delete: if false;
+    }
+
     match /system/{id} {
       allow read, write: if permitted('admin.full');
     }
