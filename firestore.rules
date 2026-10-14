@@ -407,6 +407,13 @@ service cloud.firestore {
         && request.resource.data.actorUid == request.auth.uid;
       allow update, delete: if false;
     }
+    match /financialCustomerCredits/{id} {
+      allow read: if (permitted('admin.full') || permitted('finance.manage'));
+      allow create, update: if (permitted('admin.full') || permitted('finance.manage')) && request.resource.data.customerId == id
+        && request.resource.data.availableCents is int
+        && request.resource.data.availableCents >= 0;
+      allow delete: if false;
+    }
     match /financialReversals/{id} {
       allow read: if (permitted('admin.full') || permitted('finance.manage'));
       allow create: if (permitted('admin.full') || permitted('finance.manage'));
