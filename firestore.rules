@@ -458,6 +458,23 @@ service cloud.firestore {
     }
 
 
+    match /motorServiceRequests/{id} {
+      allow read: if activeStaff() || (signedIn()
+        && exists(/databases/$(database)/documents/customers/$(resource.data.customerId))
+        && get(/databases/$(database)/documents/customers/$(resource.data.customerId)).data.linkedUid == request.auth.uid);
+      allow create: if signedIn()
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.type in ['billing_question','payment_help','service_booking','document_request','general']
+        && request.resource.data.details is string
+        && request.resource.data.details.size() > 0
+        && request.resource.data.details.size() <= 1000
+        && exists(/databases/$(database)/documents/customers/$(request.resource.data.customerId))
+        && get(/databases/$(database)/documents/customers/$(request.resource.data.customerId)).data.linkedUid == request.auth.uid;
+      allow update: if permitted('customers.manage') || permitted('service.manage') || permitted('admin.full');
+      allow delete: if false;
+    }
+
     match /system/{id} {
       allow read, write: if permitted('admin.full');
     }
