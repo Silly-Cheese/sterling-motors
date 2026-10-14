@@ -1,3 +1,5 @@
+import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
+import { db } from "./firebase.js";
 import { motorsWorkflowSummary } from "./workflows/readiness.js";
 import {summarizeMotors} from "./reports/metrics.js";
 import { createIcons, icons } from "lucide";
@@ -63,7 +65,8 @@ const state = {
   data: { vehicles: [], deals: [], customers: [], queue: [], users: [], testDrives: [], notifications: [], tradeIns: [], financeApplications: [], deliveries: [], serviceAppointments: [], repairOrders: [], parts: [], partRequests: [], vehicleAcquisitions: [], financeAppointments: [], financeCustomerProfiles: [], paymentAccounts: [], paymentTransactions: [], vehicleRecoveryCases: [], dealershipLedger: [] },
   bootstrap: null,
   loading: true,
-  flash: null
+  flash: null,
+  portal: {customer:null,requests:[],loading:false}
 };
 
 const navGroups = [
@@ -239,6 +242,27 @@ function emptyState(iconName, title, body, action = "") {
     <div class="empty-icon">${icon(iconName)}</div>
     <h3>${title}</h3><p>${body}</p>${action}
   </div>`;
+}
+
+function motorCustomerPortal(){
+  const customer=state.portal.customer;
+  return `
+    <div class="hero-row"><div><span class="eyebrow">MY STERLING MOTORS</span><h1>Customer Account</h1><p>Track your requests and dealership appointments.</p></div></div>
+    ${customer?`<div class="panel"><div class="panel-head"><h2>${safe(customer.name||"My account")}</h2></div>
+      <div class="customer-meta"><span>${icon("mail")} ${safe(customer.email||"No email")}</span>
+      <span>${icon("phone")} ${safe(customer.phone||"No phone")}</span></div></div>`:
+      emptyState("user-round","Customer record not linked","Ask Sterling Motors staff to link your signed-in account to your customer record.")}
+    ${customer?`<div class="panel"><div class="panel-head"><h2>Request dealership assistance</h2></div>
+      <form id="motor-portal-request" class="form-grid">
+        <label>Request type<select name="type"><option value="billing_question">Billing question</option><option value="payment_help">Payment assistance</option><option value="service_booking">Service appointment</option><option value="document_request">Request documents</option><option value="general">Other assistance</option></select></label>
+        <label>Details<textarea name="details" maxlength="1000" required placeholder="Describe what you need"></textarea></label>
+        <button class="btn primary" type="submit">Submit service request</button>
+      </form></div>
+      <div class="panel"><div class="panel-head"><h2>My requests</h2></div>${state.portal.requests.length?
+      state.portal.requests.map(x=>`<div class="queue-row"><div><strong>${safe(String(x.type||"Request").replaceAll("_"," "))}</strong><small>${safe(x.details||"")}</small></div>${statusPill(x.status||"submitted")}</div>`).join(""):
+      emptyState("inbox","No service requests yet","Submitted requests will appear here.")}</div>`:""}
+    <div class="panel"><div class="panel-head"><h2>Finance & payment information</h2></div><p>For an accurate balance or statement, request a verified finance account statement from our team. Payments are not collected in this portal.</p></div>
+  `;
 }
 
 function dashboard() {
@@ -3471,6 +3495,7 @@ function pageHeader(kicker, title, desc, actions = "") {
 }
 
 function currentPage() {
+  if(!state.profile?.isStaff && state.page==="dashboard") return motorCustomerPortal();
   switch (state.page) {
     case "inventory": return inventory();
     case "sales": return sales();
@@ -4574,6 +4599,11 @@ async function refreshData() {
       state.data.vehicles=uniqueVehicles;
       Object.assign(state.data, { deals, customers, queue, users, testDrives, notifications, tradeIns:uniqueTrades, financeApplications, deliveries, serviceAppointments, repairOrders, parts, partRequests, vehicleAcquisitions, financeAppointments, financeCustomerProfiles, paymentAccounts, paymentTransactions, vehicleRecoveryCases, dealershipLedger });
     } else {
+      const linked=await getDocs(query(collection(db,"customers"),where("linkedUid","==",state.user.uid))).catch(()=>null);
+      const customer=linked?.docs?.[0];
+      state.portal.customer=customer?{id:customer.id,...customer.data()}:null;
+      const requestSnap=state.portal.customer?await getDocs(query(collection(db,"motorServiceRequests"),where("customerId","==",state.portal.customer.id))).catch(()=>null):null;
+      state.portal.requests=requestSnap?.docs?.map(d=>({id:d.id,...d.data()}))||[];
       const [vehicleAcquisitions, financeAppointments] = await Promise.all([
         listVehicleAcquisitionsForUser(state.user.uid).catch(() => []),
         listFinanceAppointmentsForUser(state.user.uid).catch(() => [])
@@ -4586,6 +4616,15 @@ async function refreshData() {
 }
 
 function bindApp() {
+  document.querySelector("#motor-portal-request")?.addEventListener("submit",async event=>{
+    event.preventDefault();const form=event.currentTarget;const customer=state.portal.customer;
+    if(!customer)return;
+    const data=new FormData(form);const type=String(data.get("type")||"general");const details=String(data.get("details")||"").trim();
+    if(!details)return;
+    const button=form.querySelector("button[type=submit]");button.disabled=true;
+    try{await addDoc(collection(db,"motorServiceRequests"),{customerId:customer.id,customerName:customer.name||"",type,details,status:"submitted",submittedBy:state.user.uid,createdAt:serverTimestamp()});await refreshData();render();setFlash("Request submitted.");}
+    catch(err){button.disabled=false;setFlash(err.message||"Request could not be submitted.","error");}
+  });
   document.querySelectorAll("[data-page]").forEach(btn => btn.addEventListener("click", () => {
     state.page = btn.dataset.page; render();
   }));
