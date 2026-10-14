@@ -11,6 +11,7 @@ import {
   setDoc,
   updateDoc,
   writeBatch,
+  runTransaction,
   where
 } from "firebase/firestore";
 import { db } from "./firebase.js";
@@ -581,57 +582,53 @@ export async function ensurePaymentAccount(data, actor) {
 }
 
 export async function recordVehiclePayment(accountId, data, actor) {
+  const amount = Number(data.amount);
+  if (!Number.isFinite(amount) || amount <= 0 || Math.abs(amount * 100 - Math.round(amount * 100)) > 1e-6)
+    throw new Error("Enter a positive payment with no more than two decimal places.");
   const accountRef = doc(db, "paymentAccounts", accountId);
-  const snapshot = await getDoc(accountRef);
-  if (!snapshot.exists()) throw new Error("Payment account not found.");
-  const account = snapshot.data();
-  if (["repossessed", "closed"].includes(account.status || "")) throw new Error("Payments cannot be posted to this closed account.");
-
-  const amount = Math.max(0, Number(data.amount || 0));
-  if (!amount) throw new Error("Enter a payment amount.");
-  const balanceBefore = Number(account.currentBalance ?? account.originalBalance ?? 0);
-  const balanceAfter = Math.max(0, balanceBefore - amount);
-  const paymentRef = doc(collection(db, "paymentTransactions"));
+  const requestId = String(data.operationId || "").trim();
+  if (requestId.includes("/")) throw new Error("Invalid transaction reference.");
+  const paymentRef = requestId ? doc(db, "paymentTransactions", requestId) : doc(collection(db, "paymentTransactions"));
   const paidDate = data.paidDate || new Date().toISOString().slice(0, 10);
-  const nextDueDate = balanceAfter <= 0 ? "" : addMonthsToDateString(account.nextDueDate || paidDate, 1);
-  const nextStatus = balanceAfter <= 0 ? "paid_off" : (account.status === "defaulted" ? "defaulted" : "active");
-  const batch = writeBatch(db);
-
-  batch.set(paymentRef, {
-    paymentAccountId: accountId,
-    dealId: account.dealId || "",
-    financeApplicationId: account.financeApplicationId || "",
-    customerId: account.customerId || "",
-    customerName: account.customerName || "",
-    vehicleId: account.vehicleId || "",
-    vehicleName: account.vehicleName || "",
-    amount,
-    paymentMethod: data.paymentMethod || "RP Payment",
-    reference: data.reference || "",
-    note: data.note || "",
-    balanceBefore,
-    balanceAfter,
-    paidDate,
-    recordedBy: actor.uid,
-    recordedByName: actor.displayName || actor.email || "Sterling Finance",
-    createdAt: serverTimestamp()
+  return runTransaction(db, async tx => {
+    // Every read happens before the first transaction write.
+    const [snapshot, existing] = await Promise.all([tx.get(accountRef),tx.get(paymentRef)]);
+    if (existing.exists()) {
+      const p=existing.data();
+      if(p.paymentAccountId!==accountId || p.amount!==amount || p.recordedBy!==actor.uid)
+        throw new Error("Payment reference is already used.");
+      return {id:paymentRef.id,balanceAfter:p.balanceAfter,duplicate:true};
+    }
+    if (!snapshot.exists()) throw new Error("Payment account not found.");
+    const account = snapshot.data();
+    if (["repossessed", "closed", "paid_off"].includes(account.status || ""))
+      throw new Error("Payments cannot be posted to this closed account.");
+    const beforeCents=Math.round(Number(account.currentBalance ?? account.originalBalance ?? 0)*100);
+    const paymentCents=Math.round(amount*100);
+    if (!Number.isSafeInteger(beforeCents) || beforeCents<=0 || paymentCents>beforeCents)
+      throw new Error("Payment exceeds the remaining balance.");
+    const balanceAfter=(beforeCents-paymentCents)/100;
+    const nextDueDate=balanceAfter===0?"":addMonthsToDateString(account.nextDueDate||paidDate,1);
+    const nextStatus=balanceAfter===0?"paid_off":account.status==="defaulted"?"defaulted":"active";
+    tx.set(paymentRef,{
+      paymentAccountId:accountId,dealId:account.dealId||"",
+      financeApplicationId:account.financeApplicationId||"",
+      customerId:account.customerId||"",customerName:account.customerName||"",
+      vehicleId:account.vehicleId||"",vehicleName:account.vehicleName||"",
+      amount,paymentMethod:data.paymentMethod||"RP Payment",
+      reference:data.reference||"",note:data.note||"",balanceBefore:beforeCents/100,
+      balanceAfter,paidDate,recordedBy:actor.uid,
+      recordedByName:actor.displayName||actor.email||"Sterling Finance",createdAt:serverTimestamp()
+    });
+    tx.update(accountRef,{
+      currentBalance:balanceAfter,totalPaid:Number(account.totalPaid||0)+amount,
+      paymentsMade:Number(account.paymentsMade||0)+1,
+      lastPaymentAmount:amount,lastPaymentDate:paidDate,nextDueDate,status:nextStatus,
+      updatedBy:actor.uid,updatedByName:actor.displayName||actor.email||"Sterling Finance",
+      updatedAt:serverTimestamp()
+    });
+    return {id:paymentRef.id,balanceAfter,duplicate:false};
   });
-
-  batch.update(accountRef, {
-    currentBalance: balanceAfter,
-    totalPaid: Number(account.totalPaid || 0) + amount,
-    paymentsMade: Number(account.paymentsMade || 0) + 1,
-    lastPaymentAmount: amount,
-    lastPaymentDate: paidDate,
-    nextDueDate,
-    status: nextStatus,
-    updatedBy: actor.uid,
-    updatedByName: actor.displayName || actor.email || "Sterling Finance",
-    updatedAt: serverTimestamp()
-  });
-
-  await batch.commit();
-  return { id: paymentRef.id, balanceAfter };
 }
 
 export async function markVehiclePaymentDefault(accountId, reason, actor) {
