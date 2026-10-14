@@ -1,3 +1,4 @@
+import {summarizeMotors} from "./reports/metrics.js";
 import { createIcons, icons } from "lucide";
 import {
   createUserWithEmailAndPassword,
@@ -866,6 +867,11 @@ function financeProfileId(client) {
 function dealershipFinancePage() {
   if(!isManager()) return dashboard();
 
+  const phase5 = summarizeMotors({
+    deals:state.data.deals,paymentAccounts:state.data.paymentAccounts,
+    paymentTransactions:state.data.paymentTransactions,repairOrders:state.data.repairOrders,
+    vehicleAcquisitions:state.data.vehicleAcquisitions,staff:state.data.users
+  });
   const ledger=(state.data.dealershipLedger||[]).filter(x=>(x.status||"posted")!=="voided");
   const allLedger=state.data.dealershipLedger||[];
   const accounts=state.data.paymentAccounts||[];
@@ -979,7 +985,7 @@ function dealershipFinancePage() {
   const topOutflows=Object.entries(ledgerCategoryTotals).map(([category,x])=>({category,amount:x.outflow})).filter(x=>x.amount>0).sort((a,b)=>b.amount-a.amount).slice(0,5);
   const maxOutflow=Math.max(1,...topOutflows.map(x=>x.amount));
 
-  return `
+  return `\n    <div class="metric-grid">\n      ${metric("Open repair orders", phase5.openRepairOrders, "wrench", "Service workload")}\n      ${metric("Accounts needing attention", phase5.overdueOrDefaultedAccounts, "alert-circle", "Finance risk monitoring")}\n      ${metric("Active employees", phase5.activeStaff, "users", "Staff operations")}\n    </div>
     ${pageHeader("EXECUTIVE FINANCE","Dealership Finance","Manager-only financial command center for Sterling Motor Group operations, capital, sales, receivables, inventory, and risk.",
       `<button class="btn secondary" data-page="payments">${icon("receipt-text")} Payments & Recovery</button><button class="btn secondary" data-page="finance">${icon("landmark")} Customer F&I</button><button class="btn primary" id="new-dealership-ledger">${icon("plus")} Ledger Entry</button>`)}
 
