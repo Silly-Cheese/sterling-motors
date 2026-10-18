@@ -1,5 +1,6 @@
 import { collection, query, where, getDocs, addDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase.js";
+import {localISODate,displayDate} from "./utils/dates.js";
 import { motorsWorkflowSummary } from "./workflows/readiness.js";
 import {summarizeMotors} from "./reports/metrics.js";
 import { createIcons, icons } from "lucide";
@@ -112,12 +113,7 @@ const money = (n = 0) => new Intl.NumberFormat("en-US", {
   style: "currency", currency: "USD", maximumFractionDigits: 0
 }).format(Number(n) || 0);
 
-const fmtDate = (value) => {
-  if (!value) return "—";
-  const date = value?.toDate ? value.toDate() : new Date(value);
-  if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-};
+const fmtDate = displayDate;
 
 const initials = (name = "Sterling User") => name.split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join("").toUpperCase();
 
@@ -1205,7 +1201,7 @@ function dealershipLedgerEntryModal() {
         <option>Starting Capital</option><option>Vehicle Sale Proceeds</option><option>Vehicle Purchase / Acquisition</option><option>Reconditioning / Service</option><option>Parts Purchase</option><option>Payroll</option><option>Rent & Utilities</option><option>Marketing</option><option>Insurance</option><option>Taxes & Fees</option><option>Finance Income</option><option>Other Income</option><option>Other Expense</option><option>Adjustment</option>
       </select></div>
       ${formField("Amount","ledgerAmount","","number","required min='0.01' step='0.01'")}
-      ${formField("Entry Date","ledgerDate",new Date().toISOString().slice(0,10),"date","required")}
+      ${formField("Entry Date","ledgerDate",localISODate(),"date","required")}
       <div class="field full"><label>Description</label><input class="plain-input" id="ledgerDescription" required placeholder="Example: September facility rent"></div>
       <div class="field"><label>Reference <span class="optional-label">Optional</span></label><input class="plain-input" id="ledgerReference" placeholder="Invoice, PO, deal, memo..."></div>
       <div class="field full"><label>Management Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="ledgerNote" placeholder="Internal financial note"></textarea></div>
@@ -1213,7 +1209,7 @@ function dealershipLedgerEntryModal() {
     <div class="rp-disclaimer compact">${icon("shield-check")} This is an internal Sterling DRIVE roleplay ledger and does not represent a real bank account or accounting system.</div>
   `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="save-dealership-ledger">${icon("save")} Post Entry</button>`);
 
-  for(const [id,val] of [["ledgerDate",new Date().toISOString().slice(0,10)]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
+  for(const [id,val] of [["ledgerDate",localISODate()]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
   document.querySelector("#save-dealership-ledger")?.addEventListener("click",async()=>{
     const form=document.querySelector("#dealership-ledger-form");if(!form.reportValidity())return;
     const btn=document.querySelector("#save-dealership-ledger");btn.disabled=true;
@@ -1373,7 +1369,7 @@ function setupExistingPaymentAccount(finance) {
     <div class="field full"><label>Next Payment Due</label><input class="plain-input" id="legacyNextDue" type="date" required></div>
   `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-legacy-account">${icon("receipt-text")} Activate Account</button>`);
   const next=new Date();next.setMonth(next.getMonth()+1);
-  const input=document.querySelector("#legacyNextDue");if(input)input.value=next.toISOString().slice(0,10);
+  const input=document.querySelector("#legacyNextDue");if(input)input.value=localISODate(next);
   document.querySelector("#confirm-legacy-account")?.addEventListener("click",async()=>{
     const due=document.querySelector("#legacyNextDue").value;if(!due){setFlash("Choose the next payment due date.","error");return;}
     const btn=document.querySelector("#confirm-legacy-account");btn.disabled=true;
@@ -1446,13 +1442,13 @@ function recordVehiclePaymentModal(account) {
     <div class="payment-post-head"><span class="record-icon">${icon("circle-dollar-sign")}</span><div><span class="eyebrow">POST PAYMENT</span><h3>${safe(account.customerName||"Customer")}</h3><p>${safe(account.vehicleName||"Vehicle")} • Balance ${money(account.currentBalance)}</p></div></div>
     <form id="record-payment-form" class="form-grid">
       ${formField("Payment Amount","paymentAmount",String(account.monthlyPayment||0),"number","required min='1'")}
-      ${formField("Payment Date","paymentDate",new Date().toISOString().slice(0,10),"date","required")}
+      ${formField("Payment Date","paymentDate",localISODate(),"date","required")}
       <div class="field"><label>RP Payment Method</label><select class="plain-input" id="paymentMethod"><option>Dealer Portal</option><option>Auto Pay</option><option>Phone Payment</option><option>In Person</option><option>RP Payment</option></select></div>
       <div class="field"><label>Reference <span class="optional-label">Optional</span></label><input class="plain-input" id="paymentReference" placeholder="Receipt / note reference"></div>
       <div class="field full"><label>Note <span class="optional-label">Optional</span></label><textarea class="plain-input textarea" id="paymentNote" placeholder="Internal RP payment note"></textarea></div>
     </form>
   `,`<button class="btn secondary" data-close-modal>Cancel</button><button class="btn primary" id="confirm-record-payment">${icon("circle-dollar-sign")} Post Payment</button>`);
-  for(const [id,val] of [["paymentAmount",String(account.monthlyPayment||0)],["paymentDate",new Date().toISOString().slice(0,10)]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
+  for(const [id,val] of [["paymentAmount",String(account.monthlyPayment||0)],["paymentDate",localISODate()]]){const el=document.querySelector("#"+id);if(el)el.value=val;}
   document.querySelector("#confirm-record-payment")?.addEventListener("click",async()=>{
     const form=document.querySelector("#record-payment-form");if(!form.reportValidity())return;
     const btn=document.querySelector("#confirm-record-payment");btn.disabled=true;
@@ -1578,7 +1574,7 @@ function financePage() {
   const financed = state.data.financeApplications.reduce((sum,x) => sum + Number(x.amountFinanced || 0), 0);
   const clients=financeClientDirectory();
   const consultations=(state.data.financeAppointments||[]).filter(a=>["requested","confirmed","checked_in"].includes(a.status||"requested")).length;
-  const today=new Date().toISOString().slice(0,10);
+  const today=localISODate();
   const appointmentRequests=(state.data.financeAppointments||[]).filter(a=>(a.status||"requested")==="requested").length;
   const packageHolds=(state.data.financeApplications||[]).filter(a=>["draft","on_hold"].includes(a.status||"")).length;
   const followUpClients=clients.filter(client=>client.profile?.nextFollowUpDate && (client.profile?.followUpStatus||"open")!=="complete")
@@ -1704,7 +1700,7 @@ function financeCustomerDetailModal(client) {
         <div><span>Finance Status</span><strong>${safe((profile.financeStatus||"not_started").replaceAll("_"," "))}</strong></div>
       </div>
       <div class="finance-internal-notes"><span>FINANCE-ONLY INTERNAL NOTES</span><p>${safe(profile.internalNotes||"No internal Finance notes recorded.")}</p></div>
-      <div class="finance-next-action-card ${profile.nextFollowUpDate && String(profile.nextFollowUpDate)<=new Date().toISOString().slice(0,10) ? "due" : ""}">
+      <div class="finance-next-action-card ${profile.nextFollowUpDate && String(profile.nextFollowUpDate)<=localISODate() ? "due" : ""}">
         <span class="finance-next-action-icon">${icon("phone-call")}</span>
         <div><span class="eyebrow">NEXT ACTION</span><strong>${safe(profile.nextAction||"No follow-up action assigned")}</strong><small>${profile.nextFollowUpDate ? `Follow up ${safe(profile.nextFollowUpDate)}` : "No follow-up date"} • ${safe(profile.assignedFinanceRep||"Unassigned Finance rep")} • ${safe(profile.preferredContactMethod||"Any contact method")}</small></div>
         ${profile.priority ? `<span class="priority-chip priority-${safe(profile.priority)}">${safe(profile.priority)}</span>` : ""}
@@ -2546,7 +2542,7 @@ function deliveryModal(d) {
           termMonths:Number(finance.termMonths||0),
           apr:Number(finance.apr||0),
           financeSource:finance.financeSource||"Sterling Financial",
-          nextDueDate:nextDue.toISOString().slice(0,10),
+          nextDueDate:localISODate(nextDue),
           status:"active"
         },state.user);
         if(can("finance.manage")) await updateRecord("financeApplications",finance.id,{paymentAccountId:account.id,paymentAccountStatus:"active"});
@@ -2575,7 +2571,7 @@ function servicePage() {
   const acquisitionReady=state.data.vehicles.filter(v=>v.sourceAcquisitionId && (v.status||"")==="retail_ready").length;
   const recoveryReviews=(state.data.vehicleRecoveryCases||[]).filter(r=>["service_review_required","reconditioning"].includes(r.status||""));
   const recoveryManagerQueue=(state.data.vehicleRecoveryCases||[]).filter(r=>(r.status||"")==="manager_review_required").length;
-  const today=new Date().toISOString().slice(0,10);
+  const today=localISODate();
   const todayAppointments=appointments.filter(a=>a.date===today && !["complete","cancelled"].includes((a.status||"").toLowerCase())).length;
 
   return `
