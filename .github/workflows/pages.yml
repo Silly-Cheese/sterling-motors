@@ -29,6 +29,9 @@ jobs:
       - name: Install dependencies
         run: npm install
 
+      - name: Test Sterling DRIVE business utilities
+        run: npm test
+
       - name: Build Sterling DRIVE
         run: npm run build
 
